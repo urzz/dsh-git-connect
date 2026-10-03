@@ -17,7 +17,7 @@ The plugin uses the GitHub REST API and the Gitea v1 API. The default endpoints 
 - GitHub: `https://api.github.com`
 - Gitea: `https://gitea.com/api/v1`
 
-Configure each provider's access token directly in its `tokenRef` field. The plugin sends that value in the provider's Authorization header and does not resolve credential references.
+Configure each provider's access token directly in its `tokenRef` field. The plugin sends that value in the provider's Authorization header as-is.
 
 A profile patch can override endpoints or tokens:
 
