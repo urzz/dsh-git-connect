@@ -18,6 +18,33 @@ export const Config = z.object({
 });
 
 const DEFAULT_CONFIG = Config({});
+
+function liveValue(value, fallback) {
+  const resolved = typeof value?.get === 'function' ? value.get() : value;
+  return resolved === undefined ? fallback : resolved;
+}
+
+function snapshotConfig(input) {
+  const config = typeof input?.requestTimeoutMs?.get === 'function'
+    || typeof input?.providers?.github?.baseUrl?.get === 'function'
+    ? input
+    : Config(input);
+  return {
+    providers: {
+      github: {
+        baseUrl: liveValue(config.providers?.github?.baseUrl, 'https://api.github.com'),
+        tokenRef: liveValue(config.providers?.github?.tokenRef, 'GITHUB_TOKEN'),
+      },
+      gitea: {
+        baseUrl: liveValue(config.providers?.gitea?.baseUrl, 'https://gitea.com/api/v1'),
+        tokenRef: liveValue(config.providers?.gitea?.tokenRef, 'GITEA_TOKEN'),
+      },
+    },
+    requestTimeoutMs: liveValue(config.requestTimeoutMs, 30000),
+    maxPageSize: liveValue(config.maxPageSize, 50),
+  };
+}
+
 const PROVIDERS = ['github', 'gitea'];
 const ACTIONS = [
   'repository_get',
@@ -233,7 +260,7 @@ function buildRequest(args, config) {
 }
 
 export function apply(ctx, config = DEFAULT_CONFIG) {
-  config = Config(config);
+  config = snapshotConfig(config);
   ctx.tools.register(defineTool({
     name: 'git_host',
     description: 'Read and manage repositories and Issues through GitHub or Gitea. Supports repository metadata/listing, issue listing/details, creating issues, commenting, updating, and closing issues. Credentials come from configured credential references; never include tokens in arguments.',
