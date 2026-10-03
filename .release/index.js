@@ -174,14 +174,22 @@ function parseBody(raw) {
   }
 }
 
+async function resolveToken(ctx, tokenRef) {
+  const reference = text(tokenRef, 'tokenRef');
+  try {
+    const resolved = await ctx.credentials.resolve(reference);
+    if (resolved?.value) return resolved.value;
+  } catch {
+    // A configured token can be supplied directly for backwards compatibility.
+  }
+  return reference;
+}
+
 async function request(ctx, config, provider, action, url, init, signal) {
   const providerConfig = config.providers[provider];
-  const resolved = await ctx.credentials.resolve(providerConfig.tokenRef);
-  if (!resolved?.value) {
-    throw new Error(`No credential found for ${providerConfig.tokenRef}; configure that credential reference before calling git_host`);
-  }
+  const token = await resolveToken(ctx, providerConfig.tokenRef);
   const headers = new Headers(init?.headers);
-  headers.set('Authorization', provider === 'github' ? `Bearer ${resolved.value}` : `token ${resolved.value}`);
+  headers.set('Authorization', provider === 'github' ? `Bearer ${token}` : `token ${token}`);
   headers.set('Accept', provider === 'github' ? 'application/vnd.github+json' : 'application/json');
   headers.set('User-Agent', 'dsh-git-plugin/0.1.0');
   if (init?.body !== undefined) headers.set('Content-Type', 'application/json');
