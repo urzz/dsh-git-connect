@@ -220,8 +220,8 @@ window.__ModuleLoader__.load({
         }, 'git plugin settings styles');
         ctx.effect(() => ctx.configForms.whileServed(['include:dsh-git-plugin'], () => {
           const form = ctx.configForms.get('include:dsh-git-plugin');
-          return ctx.slots.inject('settings.section', () => ctx.slots.register({
-            name: 'settings.section',
+          return ctx.slots.inject('plugins.item', () => ctx.slots.register({
+            name: 'plugins.item',
             id: 'git-host',
             order: 18,
             label: () => t('label'),
