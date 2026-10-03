@@ -218,15 +218,12 @@ window.__ModuleLoader__.load({
           document.head.appendChild(style);
           return () => style.remove();
         }, 'git plugin settings styles');
-        ctx.effect(() => ctx.configForms.whileServed(['include:dsh-git-plugin'], () => {
-          const form = ctx.configForms.get('include:dsh-git-plugin');
-          return ctx.slots.inject('plugins.item', () => ctx.slots.register({
-            name: 'plugins.item',
-            id: 'git-host',
-            order: 18,
-            label: () => t('label'),
-          }, makePage(t, form)));
-        }), 'git plugin settings section');
+        const form = ctx.configForms.get('dsh-git-plugin');
+        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+          name: 'plugins.bundle.config',
+          key: '@local/dsh-git-plugin',
+          locale: NS,
+        }, makePage(t, form)));
       },
     };
   },
