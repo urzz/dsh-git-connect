@@ -1,16 +1,16 @@
 import z from '@deepseek-ai/schemastery';
 import { defineTool } from '@deepseek-ai/dsh-tools';
-export const inject = ['tools', 'credentials'];
+export const inject = ['tools'];
 
 export const Config = z.object({
   providers: z.object({
     github: z.object({
       baseUrl: z.string().default('https://api.github.com').volatile(),
-      tokenRef: z.string().default('GITHUB_TOKEN').volatile(),
+      tokenRef: z.string().default('').volatile(),
     }).default({}),
     gitea: z.object({
       baseUrl: z.string().default('https://gitea.com/api/v1').volatile(),
-      tokenRef: z.string().default('GITEA_TOKEN').volatile(),
+      tokenRef: z.string().default('').volatile(),
     }).default({}),
   }).default({}),
   requestTimeoutMs: z.natural().min(1000).default(30000).volatile(),
@@ -33,11 +33,11 @@ function snapshotConfig(input) {
     providers: {
       github: {
         baseUrl: liveValue(config.providers?.github?.baseUrl, 'https://api.github.com'),
-        tokenRef: liveValue(config.providers?.github?.tokenRef, 'GITHUB_TOKEN'),
+        tokenRef: liveValue(config.providers?.github?.tokenRef, ''),
       },
       gitea: {
         baseUrl: liveValue(config.providers?.gitea?.baseUrl, 'https://gitea.com/api/v1'),
-        tokenRef: liveValue(config.providers?.gitea?.tokenRef, 'GITEA_TOKEN'),
+        tokenRef: liveValue(config.providers?.gitea?.tokenRef, ''),
       },
     },
     requestTimeoutMs: liveValue(config.requestTimeoutMs, 30000),

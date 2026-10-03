@@ -17,9 +17,9 @@ The plugin uses the GitHub REST API and the Gitea v1 API. The default endpoints 
 - GitHub: `https://api.github.com`
 - Gitea: `https://gitea.com/api/v1`
 
-Tokens are never placed in the plugin configuration. The configuration stores credential references (environment variable names) and resolves them through DSH's credential service for each request. The defaults are `GITHUB_TOKEN` and `GITEA_TOKEN`.
+Configure each provider's access token directly in its `tokenRef` field. The plugin sends that value in the provider's Authorization header and does not resolve credential references.
 
-A profile patch can override endpoints or references:
+A profile patch can override endpoints or tokens:
 
 ```yaml
 - override:
@@ -28,15 +28,15 @@ A profile patch can override endpoints or references:
         providers:
           github:
             baseUrl: https://api.github.com
-            tokenRef: GITHUB_TOKEN
+            tokenRef: '<github-access-token>'
           gitea:
             # Include the Gitea REST API suffix for a self-hosted instance.
             baseUrl: https://gitea.example.com/api/v1
-            tokenRef: GITEA_TOKEN
+            tokenRef: '<gitea-access-token>'
         requestTimeoutMs: 30000
         maxPageSize: 50
 ```
 
 For self-hosted Gitea, set `providers.gitea.baseUrl` to the complete REST API root, such as `https://git.example.com/api/v1`. This supports installations behind a reverse proxy or at a custom API path as well.
 
-Set the referenced credentials through the DSH credential settings or the corresponding environment variables. The tool accepts `provider: github|gitea`, an `action`, and the repository/issue arguments described in its schema.
+Set each provider's token value in the profile configuration. The tool accepts `provider: github|gitea`, an `action`, and the repository/issue arguments described in its schema.
