@@ -5,16 +5,16 @@ export const inject = ['tools', 'credentials'];
 export const Config = z.object({
   providers: z.object({
     github: z.object({
-      baseUrl: z.string().default('https://api.github.com'),
-      tokenRef: z.string().default('GITHUB_TOKEN'),
+      baseUrl: z.string().default('https://api.github.com').volatile(),
+      tokenRef: z.string().default('GITHUB_TOKEN').volatile(),
     }).default({}),
     gitea: z.object({
-      baseUrl: z.string().default('https://gitea.com/api/v1'),
-      tokenRef: z.string().default('GITEA_TOKEN'),
+      baseUrl: z.string().default('https://gitea.com/api/v1').volatile(),
+      tokenRef: z.string().default('GITEA_TOKEN').volatile(),
     }).default({}),
   }).default({}),
-  requestTimeoutMs: z.natural().min(1000).default(30000),
-  maxPageSize: z.natural().min(1).max(100).default(50),
+  requestTimeoutMs: z.natural().min(1000).default(30000).volatile(),
+  maxPageSize: z.natural().min(1).max(100).default(50).volatile(),
 });
 
 const DEFAULT_CONFIG = Config({});
