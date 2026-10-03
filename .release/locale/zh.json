@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git 仓库与 Issues",
+    "description": "通过 Agent 工具读写 GitHub 与 Gitea 仓库和 Issues。"
+  }
+}

@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-git-plugin
+      name: '@local/dsh-git-plugin'
+      config: {}
