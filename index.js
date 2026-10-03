@@ -174,20 +174,13 @@ function parseBody(raw) {
   }
 }
 
-async function resolveToken(ctx, tokenRef) {
-  const reference = text(tokenRef, 'tokenRef');
-  try {
-    const resolved = await ctx.credentials.resolve(reference);
-    if (resolved?.value) return resolved.value;
-  } catch {
-    // A configured token can be supplied directly for backwards compatibility.
-  }
-  return reference;
+function resolveToken(token) {
+  return text(token, 'tokenRef');
 }
 
-async function request(ctx, config, provider, action, url, init, signal) {
+async function request(config, provider, action, url, init, signal) {
   const providerConfig = config.providers[provider];
-  const token = await resolveToken(ctx, providerConfig.tokenRef);
+  const token = resolveToken(providerConfig.tokenRef);
   const headers = new Headers(init?.headers);
   headers.set('Authorization', provider === 'github' ? `Bearer ${token}` : `token ${token}`);
   headers.set('Accept', provider === 'github' ? 'application/vnd.github+json' : 'application/json');
@@ -302,7 +295,7 @@ export function apply(ctx, config = DEFAULT_CONFIG) {
           if (requestConfig.body[key] === undefined) delete requestConfig.body[key];
         }
       }
-      const data = await request(ctx, config, args.provider, args.action, requestConfig.url, {
+      const data = await request(config, args.provider, args.action, requestConfig.url, {
         method: requestConfig.method,
         body: requestConfig.body ? jsonBody(requestConfig.body) : undefined,
       }, exec.signal);
