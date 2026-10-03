@@ -264,7 +264,7 @@ export function apply(ctx, config = DEFAULT_CONFIG) {
   config = snapshotConfig(config);
   ctx.tools.register(defineTool({
     name: 'git_host',
-    description: 'Read and manage repositories and Issues through GitHub or Gitea. Supports repository metadata/listing, issue listing/details, creating issues, commenting, updating, and closing issues. Credentials come from configured credential references; never include tokens in arguments.',
+    description: 'Read and manage repositories and Issues through GitHub or Gitea. Supports repository metadata/listing, issue listing/details, creating issues, commenting, updating, and closing issues. Authentication uses the provider token configured in the plugin; never include tokens in tool arguments.',
     parameters: {
       action: { type: 'string', required: true, enum: ACTIONS, description: 'Operation to perform.' },
       provider: { type: 'string', required: true, enum: PROVIDERS, description: 'Git hosting provider.' },
