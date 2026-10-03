@@ -98,9 +98,8 @@ window.__ModuleLoader__.load({
             const snapshot = form.getSnapshot();
             setState(current => ({
               ...current,
-              status: snapshot.status === 'ready' ? 'ready' : snapshot.status,
+              status: snapshot.status,
               snapshot,
-              config: current.config ?? snapshot.value,
               error: null,
             }));
           };
@@ -112,16 +111,16 @@ window.__ModuleLoader__.load({
         if (state.status === 'loading') {
           return h('section', { className: 'dsh-git-settings' }, h('p', { className: 'dsh-git-status' }, t('loading')));
         }
-        if (state.status !== 'ready' || !state.config) {
+        const config = state.config ?? state.snapshot?.value;
+        if (state.status !== 'ready' || !config) {
           return h('section', { className: 'dsh-git-settings' },
             h('p', { className: 'dsh-git-error' }, t('unavailable')),
           );
         }
 
-        const config = state.config;
         const update = (path, value) => {
           setState(current => {
-            const next = { ...current.config };
+            const next = { ...(current.config ?? current.snapshot?.value ?? {}) };
             let target = next;
             for (let index = 0; index < path.length - 1; index += 1) {
               target[path[index]] = { ...(target[path[index]] ?? {}) };
@@ -141,10 +140,18 @@ window.__ModuleLoader__.load({
               ['providers', 'gitea', 'tokenRef'],
               ['requestTimeoutMs'],
               ['maxPageSize'],
-            ].map(path => ({ op: 'set', path, value: getConfigValue(state.config, path, '') }));
+            ].map(path => ({ op: 'set', path, value: getConfigValue(config, path, '') }));
             const accepted = await form.mutate(operations, state.snapshot?.revision);
             if (!accepted) throw new Error('The configuration was changed elsewhere. Reload and try again.');
-            setState(current => ({ ...current, config: null, saving: false, saved: true }));
+            const snapshot = form.getSnapshot();
+            setState(current => ({
+              ...current,
+              status: snapshot.status,
+              snapshot,
+              config: null,
+              saving: false,
+              saved: true,
+            }));
           } catch (error) {
             console.error(error);
             setState(current => ({ ...current, saving: false, saved: false, error }));
