@@ -1,6 +1,6 @@
 # DSH Git Host
 
-`@local/dsh-git-plugin` adds one Agent tool, `git_host`, for GitHub and Gitea repositories and Issues.
+`dsh-git-connect` adds one Agent tool, `git_host`, for GitHub and Gitea repositories and Issues.
 
 Supported operations:
 

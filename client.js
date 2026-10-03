@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/dsh-git-plugin',
+  id: 'dsh-git-connect',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -204,7 +204,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => {
           if (typeof document === 'undefined') return undefined;
           const style = document.createElement('style');
-          style.dataset.plugin = '@local/dsh-git-plugin';
+          style.dataset.plugin = 'dsh-git-connect';
           style.textContent = `
             .dsh-git-settings { width: 100%; max-width: 760px; color: var(--dsw-alias-label-primary); display: flex; flex-direction: column; gap: 16px; }
             .dsh-git-header { display: flex; flex-direction: column; gap: 6px; }
@@ -228,7 +228,7 @@ window.__ModuleLoader__.load({
         const form = ctx.configForms.get('dsh-git-plugin');
         ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
           name: 'plugins.bundle.config',
-          key: '@local/dsh-git-plugin',
+          key: 'dsh-git-connect',
           locale: NS,
         }, makePage(t, form)));
       },

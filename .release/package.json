@@ -1,5 +1,5 @@
 {
-  "name": "@local/dsh-git-plugin",
+  "name": "dsh-git-connect",
   "version": "0.0.9",
   "private": true,
   "type": "module",

@@ -184,7 +184,7 @@ async function request(config, provider, action, url, init, signal) {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', provider === 'github' ? `Bearer ${token}` : `token ${token}`);
   headers.set('Accept', provider === 'github' ? 'application/vnd.github+json' : 'application/json');
-  headers.set('User-Agent', 'dsh-git-plugin/0.1.0');
+  headers.set('User-Agent', 'dsh-git-connect/0.1.0');
   if (init?.body !== undefined) headers.set('Content-Type', 'application/json');
   const timeout = AbortSignal.timeout(config.requestTimeoutMs);
   const combined = AbortSignal.any([signal, timeout]);
