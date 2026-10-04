@@ -1,7 +1,7 @@
 {
   "name": "dsh-git-connect",
   "description": "GitHub and Gitea repository and issue tool for DSH",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
