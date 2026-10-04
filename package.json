@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "main": "./index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/sync-release.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test",
+    "check": "pnpm typecheck && pnpm test"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -38,5 +44,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg"
-  ]
+  ],
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }

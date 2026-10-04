@@ -40,3 +40,15 @@ A profile patch can override endpoints or tokens:
 For self-hosted Gitea, set `providers.gitea.baseUrl` to the complete REST API root, such as `https://git.example.com/api/v1`. This supports installations behind a reverse proxy or at a custom API path as well.
 
 Set each provider's token value in the profile configuration. The tool accepts `provider: github|gitea`, an `action`, and the repository/issue arguments described in its schema.
+
+## Development
+
+The implementation lives in `src/index.ts` and `src/client.ts`. Runtime JavaScript is generated for the DSH loader and package entry points:
+
+```bash
+pnpm typecheck
+pnpm build
+pnpm test
+```
+
+`pnpm build` writes the compiled entry points to the project root and synchronizes the `.release` bundle.
