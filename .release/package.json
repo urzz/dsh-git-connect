@@ -1,12 +1,27 @@
 {
   "name": "dsh-git-connect",
+  "description": "GitHub and Gitea repository and issue tool for DSH",
   "version": "0.0.9",
   "private": true,
   "type": "module",
-  "main": "./index.js",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.runtime.json && node scripts/sync-release.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test",
+    "check": "pnpm typecheck && pnpm test"
+  },
   "exports": {
-    ".": "./index.js",
-    "./client": "./client.js",
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
     "./icon.svg": "./icon.svg"
@@ -33,10 +48,14 @@
     }
   },
   "files": [
-    "index.js",
-    "client.js",
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg"
-  ]
+  ],
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }

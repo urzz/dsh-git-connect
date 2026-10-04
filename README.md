@@ -43,7 +43,7 @@ Set each provider's token value in the profile configuration. The tool accepts `
 
 ## Development
 
-The implementation lives in `src/index.ts` and `src/client.ts`. Runtime JavaScript is generated for the DSH loader and package entry points:
+The implementation lives in `src/index.ts` and `src/client/index.ts`. Runtime JavaScript and declarations are generated into the official `lib/` package layout, with compatibility copies for the existing DSH loader:
 
 ```bash
 pnpm typecheck
@@ -52,3 +52,27 @@ pnpm test
 ```
 
 `pnpm build` writes the compiled entry points to the project root and synchronizes the `.release` bundle.
+
+## DSH reference and package conventions
+
+The authoritative DSH documentation is the [reference index](https://deepseek-harness.github.io/deepseek-harness/reference/). The pages most relevant to this plugin are:
+
+- [Adding a workspace package](https://deepseek-harness.github.io/deepseek-harness/reference/cookbook/adding-a-package) — package layout, exports, TypeScript build outputs, metadata, and verification.
+- [Writing a tool](https://deepseek-harness.github.io/deepseek-harness/reference/cookbook/adding-a-tool) — `defineTool`, typed arguments, output schemas, cancellation, rendering, and tool tests.
+- [Adding a settings card](https://deepseek-harness.github.io/deepseek-harness/reference/cookbook/adding-a-settings-card) — volatile configuration, revision-aware form mutations, and browser-side settings modules.
+- [Extension cookbook](https://deepseek-harness.github.io/deepseek-harness/reference/cookbook/extension-cookbook) — the extension-point map for tools, hooks, UI, and other plugins.
+- [Client modules](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/client-modules) — the browser module loader contract.
+
+This repository is a standalone plugin rather than a package inside the Harness workspace, but it now follows the official published package layout: `lib/index.js` and `lib/client.js` contain runtime output, and `lib/types/**/*.d.ts` contains declarations. The package manifest exposes those files through conditional `exports` and lists the exact published artifacts in `files`. The TypeScript source remains under `src/`, with the browser half at `src/client/index.ts`. Root `index.js`, `client.js`, and `probe-index.js` are generated compatibility copies for the existing standalone loader. `.release/` contains the same official `lib` package outputs plus the root aliases used by the release loader. `scripts/sync-release.mjs` produces these copies after the official `lib` outputs are built.
+
+The implementation follows the tool-side contracts that apply here:
+
+- `defineTool` derives the `execute` argument type from the parameter schema through `InferArgs`.
+- `output.schema` describes the structured JSON returned by `execute`; `render` only creates the human-readable view.
+- Request work receives and honors `exec.signal`, while provider credentials stay in plugin configuration rather than tool arguments.
+- Provider and pagination constraints that the schema DSL cannot express are checked in `execute` before making a request.
+- The browser half registers a lazy module with `window.__ModuleLoader__`, obtains the settings form through `configForms`, and writes with the form revision so concurrent edits are rejected safely.
+
+When extending the plugin, follow the official tool and settings guides before introducing a new event, slot, or client-side protocol. Configuration fields are currently documented as direct token values in `tokenRef`; deployments with a credential-reference service should use that host facility and mark credential fields as secret according to the settings-card guide.
+
+Official production examples include [`dsh-tool-bash`](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/shell/tool-bash) for a typed model-facing tool and [`dsh-client-ui-settings-plugins`](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/client/ui-settings-plugins) for a host/browser settings surface.

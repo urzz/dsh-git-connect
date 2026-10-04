@@ -6,10 +6,11 @@
     "moduleDetection": "legacy",
     "lib": ["ES2022", "DOM"],
     "rootDir": "src",
-    "outDir": "dist",
+    "outDir": "lib/types",
     "strict": true,
     "noEmitOnError": true,
-    "declaration": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
     "sourceMap": false,
     "skipLibCheck": true
   },
