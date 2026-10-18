@@ -22,20 +22,7 @@ type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = Record<string, unknown>;
 
-interface VolatileValue<T> {
-  get(): T | undefined;
-}
-
-type ConfigValue<T> = T | VolatileValue<T> | undefined;
-
-interface ConfigInput {
-  providers?: {
-    github?: { baseUrl?: ConfigValue<string>; tokenRef?: ConfigValue<string> };
-    gitea?: { baseUrl?: ConfigValue<string>; tokenRef?: ConfigValue<string> };
-  };
-  requestTimeoutMs?: ConfigValue<number>;
-  maxPageSize?: ConfigValue<number>;
-}
+export type Config = ReturnType<typeof Config>;
 
 interface ProviderConfig {
   baseUrl: string;
@@ -51,29 +38,20 @@ interface ResolvedConfig {
   maxPageSize: number;
 }
 
-const DEFAULT_CONFIG: ConfigInput = {};
-
-function liveValue<T>(value: ConfigValue<T>, fallback: T): T {
-  const resolved: T | undefined = value && typeof value === 'object' && 'get' in value && typeof value.get === 'function'
-    ? value.get()
-    : value as T | undefined;
-  return resolved === undefined ? fallback : resolved;
-}
-
-function snapshotConfig(input: ConfigInput | ResolvedConfig): ResolvedConfig {
+function snapshotConfig(input: Config): ResolvedConfig {
   return {
     providers: {
       github: {
-        baseUrl: liveValue(input.providers?.github?.baseUrl, 'https://api.github.com'),
-        tokenRef: liveValue(input.providers?.github?.tokenRef, ''),
+        baseUrl: input.providers.github.baseUrl.get(),
+        tokenRef: input.providers.github.tokenRef.get(),
       },
       gitea: {
-        baseUrl: liveValue(input.providers?.gitea?.baseUrl, 'https://gitea.com/api/v1'),
-        tokenRef: liveValue(input.providers?.gitea?.tokenRef, ''),
+        baseUrl: input.providers.gitea.baseUrl.get(),
+        tokenRef: input.providers.gitea.tokenRef.get(),
       },
     },
-    requestTimeoutMs: liveValue(input.requestTimeoutMs, 30000),
-    maxPageSize: liveValue(input.maxPageSize, 50),
+    requestTimeoutMs: input.requestTimeoutMs.get(),
+    maxPageSize: input.maxPageSize.get(),
   };
 }
 
@@ -375,8 +353,7 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
   }
 }
 
-export function apply(ctx: PluginContext, config: ConfigInput | ResolvedConfig = DEFAULT_CONFIG): void {
-  const resolvedConfig = snapshotConfig(config);
+export function apply(ctx: PluginContext, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'git_host',
     description: 'Read and manage repositories and Issues through GitHub or Gitea. Supports repository metadata/listing, issue listing/details, creating issues, commenting, updating, and closing issues. For Gitea, also supports workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Authentication uses the provider token configured in the plugin; never include tokens in tool arguments.',
@@ -385,8 +362,9 @@ export function apply(ctx: PluginContext, config: ConfigInput | ResolvedConfig =
       schema: outputSchema,
       render: (_args, value) => [{ type: 'text', text: String(JSON.stringify(value, null, 2)) }],
     },
-    timeoutMs: resolvedConfig.requestTimeoutMs,
     async execute(args, exec) {
+      // Volatile fields stay live between calls; each request uses one coherent snapshot.
+      const resolvedConfig = snapshotConfig(config);
       const { page, perPage } = validateArgs(args, resolvedConfig);
       const requestConfig = buildRequest({ ...args, page, per_page: perPage }, resolvedConfig);
       if (requestConfig.body) {

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apply } from '../index.js';
+import { apply, Config } from '../lib/index.js';
 
 function tool() {
   let registered;
-  apply({ tools: { register(value) { registered = value; } } }, {
+  apply({ tools: { register(value) { registered = value; } } }, Config({
     providers: { gitea: { baseUrl: 'https://git.example/git/api/v1/', tokenRef: 'test-token' } },
     maxPageSize: 20,
-  });
+  }));
   return registered;
 }
 const base = { provider: 'gitea', owner: 'some owner', repo: 'my/repo' };

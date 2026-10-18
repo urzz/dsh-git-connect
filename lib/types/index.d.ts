@@ -69,40 +69,11 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     requestTimeoutMs: z<number, number, "volatile-defined">;
     maxPageSize: z<number, number, "volatile-defined">;
 }>>, "plain">;
-interface VolatileValue<T> {
-    get(): T | undefined;
-}
-type ConfigValue<T> = T | VolatileValue<T> | undefined;
-interface ConfigInput {
-    providers?: {
-        github?: {
-            baseUrl?: ConfigValue<string>;
-            tokenRef?: ConfigValue<string>;
-        };
-        gitea?: {
-            baseUrl?: ConfigValue<string>;
-            tokenRef?: ConfigValue<string>;
-        };
-    };
-    requestTimeoutMs?: ConfigValue<number>;
-    maxPageSize?: ConfigValue<number>;
-}
-interface ProviderConfig {
-    baseUrl: string;
-    tokenRef: string;
-}
-interface ResolvedConfig {
-    providers: {
-        github: ProviderConfig;
-        gitea: ProviderConfig;
-    };
-    requestTimeoutMs: number;
-    maxPageSize: number;
-}
+export type Config = ReturnType<typeof Config>;
 interface PluginContext {
     tools: {
         register(tool: unknown): void;
     };
 }
-export declare function apply(ctx: PluginContext, config?: ConfigInput | ResolvedConfig): void;
+export declare function apply(ctx: PluginContext, config: Config): void;
 export {};

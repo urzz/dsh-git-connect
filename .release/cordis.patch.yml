@@ -1,4 +1,0 @@
-- insert:
-    - id: dsh-git-plugin
-      name: 'dsh-git-connect'
-      config: {}

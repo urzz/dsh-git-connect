@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 
 // Run the shipped module and its page callbacks without a browser or real credentials.
-const source = await readFile(process.env.CLIENT_UNDER_TEST ?? new URL('../client.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../lib/client/index.js', import.meta.url), 'utf8');
 function mountPage() {
   let state;
   let effect;

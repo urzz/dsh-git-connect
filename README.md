@@ -18,7 +18,9 @@ The plugin uses the GitHub REST API and the Gitea v1 API. The default endpoints 
 - GitHub: `https://api.github.com`
 - Gitea: `https://gitea.com/api/v1`
 
-Configure each provider's access token directly in its `tokenRef` field. The plugin sends that value in the provider's Authorization header as-is.
+Configure each provider's access token directly in its `tokenRef` field (despite the field name, this is a token value, not a credential-store reference). Enter the token without an authorization prefix: the plugin adds `Bearer` for GitHub and `token` for Gitea.
+
+These settings are volatile: after saving, the next tool call reads the latest token, API root, timeout, and page-size limit without disabling the plugin. The runtime consumes the schema's volatile values directly; defaults are defined only in the schema. Each in-flight request retains the configuration it started with. The request timeout is applied to HTTP together with the session cancellation signal.
 
 A profile patch can override endpoints or tokens:
 
@@ -78,7 +80,7 @@ Keep the peer dependency as a compatibility range; `pnpm-lock.yaml` pins the con
 
 ## Development
 
-The implementation lives in `src/index.ts` and `src/client/index.ts`. Runtime JavaScript and declarations are generated into the official `lib/` package layout, with compatibility copies for the existing DSH loader:
+The implementation lives in `src/index.ts` and `src/client/index.ts`. Runtime JavaScript and declarations are generated into a single `lib/` package layout:
 
 ```bash
 pnpm typecheck
@@ -86,7 +88,9 @@ pnpm build
 pnpm test
 ```
 
-`pnpm build` writes the compiled entry points to the project root and synchronizes the `.release` bundle. Commit `lib/index.js`, `lib/client.js`, and `lib/types/**/*.d.ts` together with source changes: direct GitHub installs (`github:urzz/dsh-git-connect`) use the repository root and its declared `lib/` entry points, not the `.release/` directory. The runtime artifacts are checked in so installation does not depend on running TypeScript or package lifecycle scripts.
+`pnpm build` produces `lib/index.js`, `lib/client/index.js`, and `lib/types/**/*.d.ts`; commit these with source changes. Direct GitHub installs (`github:urzz/dsh-git-connect`) use the root manifest and these checked-in artifacts, so they do not depend on TypeScript or lifecycle scripts at installation time. There are no root JavaScript aliases or separate `.release/` package.
+
+For a tarball, run `pnpm build && pnpm check && pnpm pack`. This repository currently targets Git and tarball distribution; `private: true` deliberately prevents npm registry publishing. A source-only Git distribution would instead need a self-contained `prepare` script and user authorization for dependency builds, as described in the [official publishing guide](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.zh.md). No such install-time build is needed for this prebuilt package.
 
 `pnpm test` includes a Git-source packaging check: it copies only tracked and nonignored candidate files to a temporary directory, then checks the npm package file list without running lifecycle scripts or installing dependencies. This catches missing entry points even when an ignored local build directory exists.
 
@@ -100,7 +104,9 @@ The authoritative DSH documentation is the [reference index](https://deepseek-ha
 - [Extension cookbook](https://deepseek-harness.github.io/deepseek-harness/reference/cookbook/extension-cookbook) — the extension-point map for tools, hooks, UI, and other plugins.
 - [Client modules](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/client-modules) — the browser module loader contract.
 
-This repository is a standalone plugin rather than a package inside the Harness workspace, but it now follows the official published package layout: `lib/index.js` and `lib/client.js` contain runtime output, and `lib/types/**/*.d.ts` contains declarations. The package manifest exposes those files through conditional `exports` and lists the exact published artifacts in `files`. The TypeScript source remains under `src/`, with the browser half at `src/client/index.ts`. Root `index.js`, `client.js`, and `probe-index.js` are generated compatibility copies for the existing standalone loader. `.release/` contains the same official `lib` package outputs plus the root aliases used by the release loader. `scripts/sync-release.mjs` produces these copies after the official `lib` outputs are built.
+This repository is a standalone bundle. The publishing guide does not mandate a particular source directory layout: we choose `src/` for source, `lib/index.js` and `lib/client/index.js` for runtime entry points, and `lib/types/` for declarations. The manifest's `main`, conditional `exports`, and `files` agree on those artifacts. `dsh.bundle.patch` selects `cordis.patch.yml`; the client scanner uses `exports["./client"]` and `dsh.client`; package metadata exposes the icon via `icon`. `@deepseek-ai/dsh-tools` is both a runtime peer and an explicit development dependency. Tests import the actual `lib/` entries.
+
+See [the implementation audit](docs/plugin-audit.md) for the reviewed contracts, fixes, and remaining scope limits.
 
 The implementation follows the tool-side contracts that apply here:
 

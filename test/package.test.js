@@ -14,9 +14,12 @@ test('Git-source package contains every declared entry without running a build',
   const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
     cwd: root, encoding: 'utf8',
   }).split('\0').filter(Boolean);
+  const deleted = new Set(execFileSync('git', ['ls-files', '--deleted', '-z'], {
+    cwd: root, encoding: 'utf8',
+  }).split('\0'));
   const directory = await mkdtemp(path.join(tmpdir(), 'dsh-git-package-test-'));
   try {
-    for (const file of files) {
+    for (const file of files.filter(file => !deleted.has(file))) {
       const target = path.join(directory, file);
       await mkdir(path.dirname(target), { recursive: true });
       await copyFile(path.join(root, file), target);
@@ -35,7 +38,9 @@ test('Git-source package contains every declared entry without running a build',
     for (const file of required) {
       assert.ok(packedFiles.has(file.replace(/^\.\//, '')), `Git-source package is missing ${file}`);
     }
-    assert.equal(await readFile(path.join(directory, manifest.main), 'utf8'), await readFile(path.join(directory, '.release', manifest.main), 'utf8'));
+    assert.ok(packedFiles.has(manifest.icon.replace(/^\.\//, '')), 'declared icon must be shipped');
+    assert.equal(manifest.devDependencies['@deepseek-ai/dsh-tools'], manifest.peerDependencies['@deepseek-ai/dsh-tools']);
+    assert.equal(manifest.exports['./src/*'], undefined, 'unpublished sources must not be exported');
   } finally {
     assert.equal(path.dirname(directory), path.resolve(tmpdir()));
     assert.ok(path.basename(directory).startsWith('dsh-git-package-test-'));
