@@ -89,6 +89,9 @@ const ACTIONS = [
   'issue_comment',
   'issue_update',
   'issue_close',
+  'workflow_run_list',
+  'workflow_run_get',
+  'workflow_job_list',
 ] as const;
 type Action = typeof ACTIONS[number];
 
@@ -108,6 +111,12 @@ const parameters = {
   owner: { type: 'string', description: 'Repository owner or organization. Required except for repository_list.' },
   repo: { type: 'string', description: 'Repository name. Required except for repository_list.' },
   organization: { type: 'string', description: 'Organization to list repositories from; omit to list repositories visible to the authenticated user.' },
+  run_id: { type: 'integer', description: 'Required for workflow_run_get and workflow_job_list. Use the id returned by workflow_run_list, not the run_number shown in the web UI. Workflow actions currently support Gitea only.' },
+  branch: { type: 'string', description: 'Branch filter for workflow_run_list.' },
+  event: { type: 'string', description: 'Trigger event filter for workflow_run_list, e.g. push or pull_request.' },
+  status: { type: 'string', description: 'Gitea status filter for workflow_run_list and workflow_job_list, e.g. queued, in_progress, success, failure, cancelled, skipped, or waiting. Omit for all statuses.' },
+  actor: { type: 'string', description: 'Triggering user login filter for workflow_run_list.' },
+  head_sha: { type: 'string', description: 'Commit SHA filter for workflow_run_list.' },
   number: { type: 'integer', description: 'Issue number for issue_get, issue_comment, issue_update, and issue_close.' },
   title: { type: 'string', description: 'Issue title, required for issue_create.' },
   body: { type: 'string', description: 'Issue or comment body.' },
@@ -278,6 +287,12 @@ async function request(
 function validateArgs(args: GitToolArgs, config: ResolvedConfig): { page: number; perPage: number } {
   if (!PROVIDERS.includes(args.provider)) throw new Error(`provider must be one of: ${PROVIDERS.join(', ')}`);
   if (!ACTIONS.includes(args.action)) throw new Error(`action must be one of: ${ACTIONS.join(', ')}`);
+  if (args.action.startsWith('workflow_') && args.provider !== 'gitea') {
+    throw new Error('Workflow actions currently support Gitea only');
+  }
+  if (args.action === 'workflow_run_get' || args.action === 'workflow_job_list') {
+    positiveInteger(args.run_id, 'run_id');
+  }
   const page = args.page === undefined ? 1 : positiveInteger(args.page, 'page');
   const perPage = args.per_page === undefined ? config.maxPageSize : positiveInteger(args.per_page, 'per_page');
   if (perPage > config.maxPageSize) throw new Error(`per_page must be <= ${config.maxPageSize}`);
@@ -320,6 +335,17 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
   const repo = args.repo === undefined ? undefined : `/repos/${pathPart(args.owner, 'owner')}/${pathPart(args.repo, 'repo')}`;
   const pagination = { page: args.page, per_page: args.per_page };
   switch (args.action) {
+    case 'workflow_run_list':
+      return { method: 'GET', url: queryUrl(base, `${repo}/actions/runs`, {
+        page: args.page, limit: args.per_page, branch: args.branch,
+        event: args.event, status: args.status, actor: args.actor, head_sha: args.head_sha,
+      }) };
+    case 'workflow_run_get':
+      return { method: 'GET', url: `${base}${repo}/actions/runs/${args.run_id}` };
+    case 'workflow_job_list':
+      return { method: 'GET', url: queryUrl(base, `${repo}/actions/runs/${args.run_id}/jobs`, {
+        page: args.page, limit: args.per_page, status: args.status,
+      }) };
     case 'repository_get':
       return { method: 'GET', url: `${base}${repo}` };
     case 'repository_list': {
@@ -353,7 +379,7 @@ export function apply(ctx: PluginContext, config: ConfigInput | ResolvedConfig =
   const resolvedConfig = snapshotConfig(config);
   ctx.tools.register(defineTool({
     name: 'git_host',
-    description: 'Read and manage repositories and Issues through GitHub or Gitea. Supports repository metadata/listing, issue listing/details, creating issues, commenting, updating, and closing issues. Authentication uses the provider token configured in the plugin; never include tokens in tool arguments.',
+    description: 'Read and manage repositories and Issues through GitHub or Gitea. Supports repository metadata/listing, issue listing/details, creating issues, commenting, updating, and closing issues. For Gitea, also supports workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Authentication uses the provider token configured in the plugin; never include tokens in tool arguments.',
     parameters,
     output: {
       schema: outputSchema,

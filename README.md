@@ -11,6 +11,7 @@ Supported operations:
 - `issue_comment`
 - `issue_update`
 - `issue_close`
+- `workflow_run_list`, `workflow_run_get`, and `workflow_job_list`: Gitea Actions execution status (read-only)
 
 The plugin uses the GitHub REST API and the Gitea v1 API. The default endpoints are:
 
@@ -40,6 +41,40 @@ A profile patch can override endpoints or tokens:
 For self-hosted Gitea, set `providers.gitea.baseUrl` to the complete REST API root, such as `https://git.example.com/api/v1`. This supports installations behind a reverse proxy or at a custom API path as well.
 
 Set each provider's token value in the profile configuration. The tool accepts `provider: github|gitea`, an `action`, and the repository/issue arguments described in its schema.
+
+## Gitea workflow execution status
+
+Use `git_host` with `provider: "gitea"`, `owner`, and `repo`:
+
+| Action | Purpose | Additional arguments |
+| --- | --- | --- |
+| `workflow_run_list` | List runs, including status and conclusion | Optional `branch`, `event`, `status`, `actor`, `head_sha`, `page`, `per_page` |
+| `workflow_run_get` | Inspect a specific run | Required `run_id` |
+| `workflow_job_list` | Inspect jobs and steps in a run | Required `run_id`; optional `status`, `page`, `per_page` |
+
+For example, list failed runs on the main branch:
+
+```json
+{"provider":"gitea","action":"workflow_run_list","owner":"my-org","repo":"my-repo","branch":"main","status":"failure","per_page":10}
+```
+
+Then inspect the jobs using the returned run's **`id`**, not its `run_number` or the number in a web URL:
+
+```json
+{"provider":"gitea","action":"workflow_job_list","owner":"my-org","repo":"my-repo","run_id":801}
+```
+
+Responses preserve the provider JSON in `data`, including `total_count`, `workflow_runs` or `jobs`, statuses, conclusions, timestamps, steps, and runner information when returned by Gitea. The tool maps `per_page` to Gitea's `limit`; request subsequent pages explicitly. These actions do not fetch logs, list available runners, trigger workflows, cancel runs, or rerun jobs. GitHub workflow queries are not implemented.
+
+Gitea 1.25 derives step status/conclusion from the job status in its API converter, so step entries alone cannot reliably identify the failing step; inspect the linked web run for that diagnosis. A jobs query for an unknown positive run ID can return an empty list; use `workflow_run_get` to check that the run exists.
+
+The API contract was checked against [Gitea 1.25 handlers](https://github.com/go-gitea/gitea/blob/release/v1.25/routers/api/v1/repo/action.go) and [routes](https://github.com/go-gitea/gitea/blob/release/v1.25/routers/api/v1/api.go). Your instance must expose these Actions endpoints. In that version, listing repository runs requires a signed-in repository owner or site administrator; getting a run or listing its jobs requires Actions read access. Scoped tokens need `read:repository` access to the target repository. Older versions may lack these endpoints. HTTP 403/404 remain explicit errors: check token permissions, repository visibility, Actions availability, and the instance's API version rather than treating an error as an empty run list.
+
+## DSH compatibility
+
+The `@deepseek-ai/dsh-tools` peer dependency declares `^0.2.0-rc.2`: DSH 0.2 releases starting at 0.2.0-rc.2 are supported, including 0.2.1-rc.2. DSH's compatibility checker includes prereleases when evaluating this range. Versions before that minimum and the 0.3 series (including its prereleases) are outside the declared range.
+
+Keep the peer dependency as a compatibility range; `pnpm-lock.yaml` pins the concrete development dependency version for reproducible installs. Do not replace the range with the current host's exact version on each upgrade. Reassess the range when the plugin starts requiring newer APIs or DSH introduces breaking changes.
 
 ## Development
 
