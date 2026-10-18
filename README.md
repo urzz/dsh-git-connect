@@ -86,7 +86,9 @@ pnpm build
 pnpm test
 ```
 
-`pnpm build` writes the compiled entry points to the project root and synchronizes the `.release` bundle.
+`pnpm build` writes the compiled entry points to the project root and synchronizes the `.release` bundle. Commit `lib/index.js`, `lib/client.js`, and `lib/types/**/*.d.ts` together with source changes: direct GitHub installs (`github:urzz/dsh-git-connect`) use the repository root and its declared `lib/` entry points, not the `.release/` directory. The runtime artifacts are checked in so installation does not depend on running TypeScript or package lifecycle scripts.
+
+`pnpm test` includes a Git-source packaging check: it copies only tracked and nonignored candidate files to a temporary directory, then checks the npm package file list without running lifecycle scripts or installing dependencies. This catches missing entry points even when an ignored local build directory exists.
 
 ## DSH reference and package conventions
 

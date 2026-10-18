@@ -1,5 +1,6 @@
 node_modules/
 dist/
-lib/
-!.release/lib/
-!.release/lib/**
+/lib/*
+!/lib/index.js
+!/lib/client.js
+!/lib/types/
