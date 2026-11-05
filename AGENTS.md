@@ -40,14 +40,18 @@ npm publish --dry-run
 
 正式发布优先通过 GitHub Actions：
 
-- 工作流：`.github/workflows/npm-publish.yml`，由 GitHub Release 的 `published` 事件触发。
-- npm 包的 Trusted Publisher 必须绑定 GitHub owner `urzz`、repository `dsh-git-connect`、workflow filename `npm-publish.yml`；不设置 environment，也不需要 NPM_TOKEN。
-- 工作流使用 Node 24、npm 11 和 OIDC 发布；安装依赖后检查 Release tag 与包版本一致，`npm publish` 通过 prepack 构建和检查。
-- 先将 `package.json` 中的版本设为尚未发布的版本，提交并普通推送到 main，再发布对应的 `v<version>` GitHub Release。例如当前版本：
+- 工作流：`.github/workflows/publish.yml`，参考 `dsh-plugin-enhance`，由推送 `v*` 标签触发。
+- npm 包的 Trusted Publisher 必须绑定 GitHub owner `urzz`、repository `dsh-git-connect`、workflow filename `publish.yml`；不设置 environment，也不需要 NPM_TOKEN。
+- 工作流使用 GitHub 托管的 Ubuntu runner、Node 24、npm 11 和 OIDC 发布，并附带 provenance；标签必须等于 `v` 加包版本，`npm publish` 通过 prepack 构建和检查。正式版使用 `latest`，含预发布标识的版本使用 `next`。
+- 先将 `package.json` 中的版本设为尚未发布的版本，提交并普通推送到 main，再创建并推送对应的 `v<version>` 标签。例如当前版本：
 
 ```bash
-gh release create v0.0.12 --repo urzz/dsh-git-connect --target main --title v0.0.12 --notes-file <release-notes-file>
+git tag v0.0.12
+git push origin main
+git push origin v0.0.12
 ```
+
+标签推送即可触发 npm 发布，不依赖 GitHub Release；需要发布说明时再为该标签创建 Release。
 
 检查 Action 结果后再报告 npm 发布成功；若 npm Trusted Publisher 未绑定或认证失败，应明确报告并修正 npm 侧配置，不自动改用其他凭据。
 
