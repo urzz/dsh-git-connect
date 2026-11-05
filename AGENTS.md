@@ -38,14 +38,20 @@ npm publish --dry-run
 
 该命令构建、检查并展示包内容，不上传，也不验证 npm 账号权限或版本是否可用。
 
-正式发布时，先将 `package.json` 中的版本设为尚未发布的版本，并使用有 `dsh-git-connect` 发布权限的 npm 账号：
+正式发布优先通过 GitHub Actions：
+
+- 工作流：`.github/workflows/npm-publish.yml`，由 GitHub Release 的 `published` 事件触发。
+- npm 包的 Trusted Publisher 必须绑定 GitHub owner `urzz`、repository `dsh-git-connect`、workflow filename `npm-publish.yml`；不设置 environment，也不需要 NPM_TOKEN。
+- 工作流使用 Node 24、npm 11 和 OIDC 发布；安装依赖后检查 Release tag 与包版本一致，`npm publish` 通过 prepack 构建和检查。
+- 先将 `package.json` 中的版本设为尚未发布的版本，提交并普通推送到 main，再发布对应的 `v<version>` GitHub Release。例如当前版本：
 
 ```bash
-npm login --registry=https://registry.npmjs.org/
-npm publish
+gh release create v0.0.12 --repo urzz/dsh-git-connect --target main --title v0.0.12 --notes-file <release-notes-file>
 ```
 
-`pnpm publish` 使用相同生命周期。只需生成本地 tarball 时运行：
+检查 Action 结果后再报告 npm 发布成功；若 npm Trusted Publisher 未绑定或认证失败，应明确报告并修正 npm 侧配置，不自动改用其他凭据。
+
+需要手动发布时，使用有包发布权限的 npm 账号执行 `npm login --registry=https://registry.npmjs.org/`，再执行 `npm publish`。`pnpm publish` 使用相同生命周期。只需生成本地 tarball 时运行：
 
 ```bash
 pnpm pack
