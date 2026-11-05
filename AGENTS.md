@@ -46,9 +46,9 @@ npm publish --dry-run
 - 先将 `package.json` 中的版本设为尚未发布的版本，提交并普通推送到 main，再创建并推送对应的 `v<version>` 标签。例如当前版本：
 
 ```bash
-git tag v0.0.12
+git tag v0.0.13
 git push origin main
-git push origin v0.0.12
+git push origin v0.0.13
 ```
 
 标签推送即可触发 npm 发布，不依赖 GitHub Release；需要发布说明时再为该标签创建 Release。
