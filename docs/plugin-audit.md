@@ -34,7 +34,7 @@
 - `dsh.bundle.patch`、`exports["./client"]`、`dsh.client` 及客户端 ModuleLoader lazy factory 已存在。客户端配置页使用 configForms 的快照、订阅、revision 和 mutate；样式带 effect 清理。
 - 保留提交 lib 产物的 Git 安装方式，不增加安装期 prepare 或构建授权。源码不带产物的 Git 分发才需要另一套构建安排。
 - 保留 DSH peer 兼容范围；发布教程允许它作为 engines.dsh 的回退，无需重复声明。
-- 保留 private:true：当前交付方式为 Git/tarball；若未来发布 npm registry，需要单独调整该字段。
+- 支持 npm registry、Git 和 tarball 分发：已移除 private:true，publishConfig 指向公开 npm registry；prepack 在打包和发布前执行构建与检查，保留预构建产物和无安装期 prepare 的方式。
 
 ## 验证边界
 

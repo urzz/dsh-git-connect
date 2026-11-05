@@ -2,7 +2,14 @@
   "name": "dsh-git-connect",
   "description": "GitHub and Gitea repository and issue tool for DSH",
   "version": "0.0.12",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/urzz/dsh-git-connect.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -11,7 +18,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test",
-    "check": "pnpm typecheck && pnpm test"
+    "check": "pnpm typecheck && pnpm test",
+    "prepack": "pnpm build && pnpm check"
   },
   "exports": {
     ".": {
