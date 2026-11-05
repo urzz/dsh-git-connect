@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Git 仓库与 Issues",
-    "description": "通过 Agent 工具读写 GitHub 与 Gitea 仓库和 Issues。"
+    "title": "代码协作",
+    "description": "连接智能体与代码托管平台，让开发协作融入日常工作。"
   }
 }

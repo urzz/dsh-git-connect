@@ -1,4 +1,6 @@
-# DSH Git Host
+# 代码协作 · Code Collaboration
+
+Connect agents to code hosting platforms and bring development collaboration into everyday work.
 
 `dsh-git-connect` adds one Agent tool, `git_host`, for GitHub and Gitea repositories and Issues.
 

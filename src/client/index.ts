@@ -109,8 +109,8 @@ function cloneConfig(config: GitConfig): GitConfig {
 
 const copy = {
   en: {
-    label: 'Git repositories',
-    title: 'Git repositories and issues',
+    label: 'Code Collaboration',
+    title: 'Code Collaboration',
     description: 'Configure the GitHub and Gitea connections used by the git_host tool.',
     github: 'GitHub',
     gitea: 'Gitea',
@@ -128,8 +128,8 @@ const copy = {
     giteaHint: 'For self-hosted Gitea, include the complete API root, usually ending in /api/v1.',
   },
   zh: {
-    label: 'Git 仓库',
-    title: 'Git 仓库与 Issues',
+    label: '代码协作',
+    title: '代码协作',
     description: '配置 git_host 工具使用的 GitHub 和 Gitea 连接。',
     github: 'GitHub',
     gitea: 'Gitea',
