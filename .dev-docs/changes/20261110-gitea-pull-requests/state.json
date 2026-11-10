@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 2,
+  "workspace": {
+    "kind": "git",
+    "branch": "gitea-pull-requests",
+    "baseCommit": "15067884b760631d8b08b80d3136a38504edebe7",
+    "projectPath": ""
+  },
+  "id": "20261110-gitea-pull-requests",
+  "title": "补齐 git_host 的 Gitea Pull Request 基础闭环",
+  "revision": 7,
+  "createdAt": "2026-11-10T14:14:05.073Z",
+  "updatedAt": "2026-11-10T14:34:03.607Z",
+  "documents": {
+    "intent": {
+      "version": 2,
+      "path": "intent.md",
+      "digest": "16230b91f211bf755c44463ce99570cfe78bbf4204a4eaec395810b2d29101d4",
+      "basedOn": {},
+      "reason": "用户追问 GitHub PR，补充双平台候选范围，明确新增范围尚待确认"
+    },
+    "spec": {
+      "version": 2,
+      "path": "spec.md",
+      "digest": "1a383e53edd76adf6daa7366564b3e885c3aef62dfaff3efcae6a6b9c098b3d8",
+      "basedOn": {
+        "intent": 2
+      },
+      "reason": "将同组操作扩展至两平台，并明确 diff、分页、合并和分支删除差异"
+    },
+    "plan": {
+      "version": 1,
+      "path": "plan.md",
+      "digest": "cbee40915eb1b78b026d9e5f869e05b65ff532a68af2bfbd18d6d2fe61892a76",
+      "basedOn": {
+        "intent": 2,
+        "spec": 2
+      },
+      "reason": "拆分互不重叠的实现、独立测试与文档构建任务"
+    }
+  },
+  "workflow": {
+    "phase": "done",
+    "status": "active",
+    "reason": "交付 gitea-pull-requests 本地工作树；pnpm build 与 pnpm check 通过，81 项测试全绿。未提交、发布、安装或远端写入。",
+    "nextAction": "Delivered"
+  },
+  "decisions": [
+    {
+      "id": "confirm-pr-scope",
+      "kind": "intent-confirmation",
+      "subjects": {
+        "intent": 1
+      },
+      "scope": "Gitea PR 首批查询、管理、普通评论及显式方式与可选 SHA 校验的合并",
+      "source": {
+        "quote": "确认，继续",
+        "context": "当前会话用户回复上一轮已展示的首批能力范围；未提供事件编号。",
+        "recordedBy": "agent"
+      },
+      "recordedAt": "2026-11-10T14:15:51.745Z"
+    },
+    {
+      "id": "confirm-dual-provider-intent",
+      "kind": "intent-confirmation",
+      "subjects": {
+        "intent": 2
+      },
+      "scope": "GitHub 与 Gitea PR 基础操作",
+      "source": {
+        "quote": "确认，继续",
+        "context": "用户确认上一轮展示的双平台方案并开始实施。",
+        "recordedBy": "agent"
+      },
+      "recordedAt": "2026-11-10T14:20:25.537Z"
+    },
+    {
+      "id": "review-dual-provider-spec",
+      "kind": "spec-review",
+      "subjects": {
+        "intent": 2,
+        "spec": 2
+      },
+      "scope": "双平台 11 个 PR 操作及合并、diff、分页差异",
+      "source": {
+        "quote": "确认，继续",
+        "context": "用户审核已展示的双平台具体方案。",
+        "recordedBy": "agent"
+      },
+      "recordedAt": "2026-11-10T14:20:25.537Z"
+    },
+    {
+      "id": "authorize-dual-provider-implementation",
+      "kind": "implementation-authorization",
+      "subjects": {
+        "intent": 2,
+        "spec": 2
+      },
+      "scope": "本地实现、构建、测试与文档，不含提交发布安装",
+      "source": {
+        "quote": "确认，继续",
+        "context": "用户批准按双平台方案开始实施。",
+        "recordedBy": "agent"
+      },
+      "recordedAt": "2026-11-10T14:20:25.537Z"
+    }
+  ],
+  "acceptance": {
+    "specVersion": 2,
+    "items": [
+      {
+        "id": "A1",
+        "anchor": "spec.md#验收",
+        "required": true
+      },
+      {
+        "id": "A2",
+        "anchor": "spec.md#验收",
+        "required": true
+      },
+      {
+        "id": "A3",
+        "anchor": "spec.md#验收",
+        "required": true
+      },
+      {
+        "id": "A4",
+        "anchor": "spec.md#验收",
+        "required": true
+      },
+      {
+        "id": "A5",
+        "anchor": "spec.md#验收",
+        "required": true
+      }
+    ]
+  },
+  "execution": [
+    {
+      "stepId": "P1",
+      "acceptanceIds": [
+        "A1",
+        "A2",
+        "A3",
+        "A4"
+      ],
+      "mode": "direct",
+      "status": "completed",
+      "note": "双平台 11 PR actions 已实现"
+    },
+    {
+      "stepId": "P2",
+      "acceptanceIds": [
+        "A1",
+        "A2",
+        "A3",
+        "A4"
+      ],
+      "mode": "direct",
+      "status": "completed",
+      "note": "66 项 PR 测试与现有 15 项全部通过"
+    },
+    {
+      "stepId": "P3",
+      "acceptanceIds": [
+        "A5"
+      ],
+      "mode": "direct",
+      "status": "completed",
+      "note": "README、lib、知识记录与验收证据已同步"
+    }
+  ],
+  "verification": [
+    {
+      "id": "local-pr-verification",
+      "acceptanceIds": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ],
+      "specVersion": 2,
+      "outcome": "passed",
+      "method": "pnpm build; pnpm check; git diff --check; Lead 源码/文档审阅",
+      "subject": "双平台 PR 本地交付",
+      "environment": "Node / pnpm worktree, 模拟 HTTP，测试直接导入 lib",
+      "evidenceRefs": [
+        ".dev-docs/changes/20261110-gitea-pull-requests/verification.md",
+        "test/pull-requests.test.js",
+        "docs/plugin-audit.md"
+      ],
+      "summary": "构建/类型检查成功，81 项测试通过；README 和编译产物同步；无远端写入或安装验证。",
+      "recordedAt": "2026-11-10T14:33:52.275Z"
+    }
+  ],
+  "blockers": [],
+  "closure": {
+    "summary": "交付 gitea-pull-requests 本地工作树；pnpm build 与 pnpm check 通过，81 项测试全绿。未提交、发布、安装或远端写入。",
+    "acceptanceIds": [
+      "A1",
+      "A2",
+      "A3",
+      "A4",
+      "A5"
+    ],
+    "satisfaction": "用户批准的双平台 11 项 PR 能力已完成本地实现、构建、测试和文档；A1-A5 全部通过。",
+    "knowledge": {
+      "status": "updated",
+      "summary": "记录双平台 PR 契约、分页/diff/合并差异、评论保护与本地验证边界",
+      "refs": [
+        "docs/plugin-audit.md",
+        "README.md"
+      ]
+    },
+    "evidenceRefs": [
+      ".dev-docs/changes/20261110-gitea-pull-requests/verification.md",
+      "test/pull-requests.test.js"
+    ],
+    "recordedAt": "2026-11-10T14:34:03.607Z"
+  }
+}

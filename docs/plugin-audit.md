@@ -36,7 +36,17 @@
 - 保留 DSH peer 兼容范围；发布教程允许它作为 engines.dsh 的回退，无需重复声明。
 - 支持 npm registry、Git 和 tarball 分发：已移除 private:true，publishConfig 指向公开 npm registry；prepack 在打包和发布前执行构建与检查，保留预构建产物和无安装期 prepare 的方式。
 
-## 验证边界
+## GitHub / Gitea Pull Requests（2026-11-10）
+
+`git_host` 新增同组 11 个 `pull_request_*` 操作，覆盖列表、详情、文件、diff、创建、修改、关闭、重开、普通评论查询/写入与合并。实现保留 provider JSON，diff 按原始文本返回。Gitea 使用 `limit` / `base_branch`，GitHub 使用 `per_page` / `base`；没有自动分页。
+
+两平台普通评论先查询 PR，避免编号落到普通 Issue；两次 HTTP 共享调用开始时的配置快照及会话取消信号。合并必须显式指定方法；可选 head_sha 分别映射至 Gitea `head_commit_id` 与 GitHub `sha`。GitHub 不支持的方式在 HTTP 前失败，HTTP 200 的 `merged=false` 仍报错。Gitea 显式设置 `delete_branch_after_merge=false`，GitHub 按仓库自动删除设置执行。没有暴露强制合并、Review 或内联评论。
+
+验证直接导入发布入口 `lib/index.js`：`pnpm build`、`pnpm check` 通过，共 81 项测试（新增 66 项 PR 测试），覆盖路由、请求体、原始输出、合并差异、预检查、HTTP 错误、取消、双请求配置快照及读写呈现；现有配置、客户端、Actions 与 Git 源码打包测试同时通过。`git diff --check` 通过。PR 测试使用模拟 HTTP；没有真实远端写入或安装运行环境验证。
+
+契约依据：[Gitea 1.25 PR](https://github.com/go-gitea/gitea/blob/release/v1.25/routers/api/v1/repo/pull.go)、[合并表单](https://github.com/go-gitea/gitea/blob/release/v1.25/services/forms/repo_form.go)、[GitHub PR REST API](https://docs.github.com/en/rest/pulls/pulls)。具体设计及验收见 [双平台 PR change](../.dev-docs/changes/20261110-gitea-pull-requests/spec.md)。
+
+## 原有配置与发布结构验证边界
 
 构建、类型检查和 15 项测试通过。新增配置测试分别覆盖 GitHub/Gitea：注册时空 Token、保存后首次调用、再次更换 Token/地址/超时/分页、清空 Token，以及只注册一次工具。现有配置页测试覆盖保存、revision、外部快照刷新与失败保留草稿；工作流测试覆盖路由、参数、权限错误与取消；打包测试检查入口、图标和声明文件均随 Git 源码分发。
 
