@@ -57,6 +57,9 @@ interface SlotsApi {
 
 interface ClientContext {
   effect(callback: () => void | (() => void), label?: string): void;
+  connection: { rpc: { call(prefix: string, method: string, input: unknown): Promise<
+    { ok: true; value: { login: string } } | { ok: false; error: { code: string; message: string; details?: { status?: number } } }
+  > } };
   locale: LocaleApi;
   configForms: { get(id: string): ConfigForm | undefined };
   slots: SlotsApi;
@@ -86,7 +89,7 @@ interface ConfigFieldProps {
   hint?: string | null;
   value: FieldValue;
   onChange(value: FieldValue): void;
-  type?: 'text' | 'number';
+  type?: 'text' | 'number' | 'password';
   min?: number;
   max?: number;
 }
@@ -95,6 +98,7 @@ interface ProviderCardProps {
   name: ProviderName;
   config: GitConfig;
   update(path: ConfigPath, value: ConfigValue): void;
+  check(key: string, connection: { baseUrl: string; tokenRef: string }): unknown;
 }
 
 interface PageState {
@@ -102,6 +106,7 @@ interface PageState {
   snapshot: ConfigSnapshot | null;
   config: GitConfig | null;
   error: Error | null;
+  checks?: Record<string, { signature: string; pending: boolean; ok?: boolean; message?: string }>;
   saving: boolean;
   saved: boolean;
 }
@@ -129,6 +134,21 @@ const copy = {
     originHint: 'For example: https://git.example.com, git@git.example.com: or ssh://git@git.example.com:2222.',
     instancesHint: 'When instances are configured, they replace the single connection. Remove all instances to use the single connection again.',
     instance: 'Instance',
+    test: 'Test connection', testing: 'Testing…', connected: 'Connected as',
+    testHint: 'Tests the current inputs without saving. Requires permission to read your user profile.',
+    general: 'Request settings',
+    failures: {
+      validation: 'Check the API URL, token and request timeout. The URL must use HTTP(S) without credentials, query or fragment.',
+      authentication: 'Token rejected. Check its value and permission to read your user profile.',
+      http: 'Gitea returned an HTTP error. Check the API URL and server status.',
+      network: 'Could not reach Gitea. Check the address, network and TLS certificate.',
+      timeout: 'Connection timed out. Check the network or increase the request timeout.',
+      cancelled: 'Connection test cancelled. Try again.',
+      redirect: 'Gitea redirected the request. Enter the final API URL.',
+      response: 'The response is not a Gitea user profile. Check the API URL.',
+      forbidden: 'Only the owner can test connections.',
+      'not-found': 'Connection testing is unavailable. Check the plugin version.',
+    },
     addInstance: 'Add instance',
     removeInstance: 'Remove instance',
     baseUrl: 'API base URL',
@@ -154,6 +174,21 @@ const copy = {
     originHint: '例如：https://git.example.com、git@git.example.com: 或 ssh://git@git.example.com:2222。',
     instancesHint: '配置实例后将使用实例列表；删除全部实例后恢复使用单实例连接。',
     instance: '实例',
+    test: '检测连接', testing: '检测中…', connected: '已连接，当前账号：',
+    testHint: '使用当前输入检测，无需先保存。Token 需具有读取当前用户资料的权限。',
+    general: '请求设置',
+    failures: {
+      validation: '请检查 API 地址、Token 和请求超时。地址须使用 HTTP(S)，且不含账号密码、查询参数或片段。',
+      authentication: 'Token 验证失败，请检查 Token 是否有效，并具有读取当前用户资料的权限。',
+      http: 'Gitea 返回 HTTP 错误，请检查 API 地址和服务器状态。',
+      network: '无法连接 Gitea，请检查地址、网络和 TLS 证书。',
+      timeout: '连接超时，请检查网络或增加请求超时。',
+      cancelled: '检测已取消，请重试。',
+      redirect: 'Gitea 返回了重定向，请填写最终的 API 地址。',
+      response: '返回内容不是 Gitea 用户资料，请检查 API 地址。',
+      forbidden: '仅所有者可以检测连接。',
+      'not-found': '连接检测不可用，请检查插件版本。',
+    },
     addInstance: '新增实例',
     removeInstance: '删除实例',
     baseUrl: 'API 基础地址',
@@ -178,7 +213,17 @@ const copy = {
     const h = React.createElement;
     const NS = 'dsh-git-plugin.settings';
 
-    function makePage(t: Translate, form: ConfigForm | undefined): unknown {
+    function makePage(t: Translate, form: ConfigForm | undefined, connection: ClientContext['connection']): unknown {
+      async function testConnection(input: { baseUrl: string; tokenRef: string }, timeoutMs: number): Promise<{ login: string }> {
+        const result = await connection.rpc.call('/git-connect', 'connection-test', { baseUrl: input.baseUrl, tokenRef: input.tokenRef, timeoutMs });
+        if (!result.ok) {
+          const { code, message, details } = result.error;
+          const translated = Object.hasOwn(copy.en.failures, code) ? t(`failures.${code}`) : message;
+          throw new Error(`${translated}${details?.status ? ` (HTTP ${details.status})` : ''}`);
+        }
+        return result.value;
+      }
+
       function getConfigValue<T>(config: unknown, path: readonly string[], fallback: T): T {
         let value: unknown = config;
         for (const part of path) {
@@ -196,32 +241,39 @@ const copy = {
             value: value ?? '',
             min,
             max,
+            autoComplete: type === 'password' ? 'new-password' : 'off',
+            spellCheck: false,
             onChange: (event: { target: { value: string } }) => onChange(type === 'number' ? Number(event.target.value) : event.target.value),
           }),
           hint ? h('span', { className: 'dsh-git-field-hint' }, hint) : null,
         );
       }
 
-      function ProviderCard({ name, config, update }: ProviderCardProps): ElementNode {
+      function ProviderCard({ name, config, update, check }: ProviderCardProps): ElementNode {
         const isGitea = name === 'gitea';
         const instances = getConfigValue<GiteaInstance[]>(config, ['providers', 'gitea', 'instances'], []);
         const updateInstances = (next: GiteaInstance[]): void => update(['providers', 'gitea', 'instances'], next);
         return h('section', { className: 'dsh-git-card' },
-          h('h2', { className: 'dsh-git-card-title' }, isGitea ? t('gitea') : t('github')),
+          h('div', { className: 'dsh-git-provider-heading' },
+            h('h2', { className: 'dsh-git-card-title' }, isGitea ? t('gitea') : t('github')),
+            isGitea && instances.length ? h('span', { className: 'dsh-git-count' }, String(instances.length)) : null),
           isGitea ? h('p', { className: 'dsh-git-field-hint' }, t('instancesHint')) : null,
           isGitea && instances.length ? instances.map((instance, index) => h('section', { className: 'dsh-git-instance', key: index },
-            h('h3', { className: 'dsh-git-card-title' }, `${t('instance')} ${index + 1}`),
+            h('div', { className: 'dsh-git-instance-heading' },
+              h('h3', { className: 'dsh-git-card-title' }, `${t('instance')} ${index + 1}`),
+              h('button', { className: 'dsh-git-remove', type: 'button',
+                'aria-label': `${t('removeInstance')} ${index + 1}`,
+                onClick: () => updateInstances(instances.filter((_, itemIndex) => itemIndex !== index)),
+              }, t('removeInstance'))),
             ...(['origin', 'baseUrl', 'tokenRef'] as const).map(field => h(ConfigField, {
               key: field,
               label: t(field),
+              type: field === 'tokenRef' ? 'password' : 'text',
               value: instance[field],
               hint: t(field === 'origin' ? 'originHint' : field === 'baseUrl' ? 'giteaHint' : 'credentialHint'),
               onChange: (value: FieldValue) => updateInstances(instances.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: String(value) } : item)),
             })),
-            h('button', {
-              className: 'dsh-git-secondary', type: 'button',
-              onClick: () => updateInstances(instances.filter((_, itemIndex) => itemIndex !== index)),
-            }, t('removeInstance')),
+            check(`instance-${index}`, instance),
           )) : [h(ConfigField, {
             key: 'baseUrl',
             label: t('baseUrl'),
@@ -231,11 +283,13 @@ const copy = {
           }),
           h(ConfigField, {
             key: 'tokenRef',
+            type: 'password',
             label: t('tokenRef'),
             value: getConfigValue(config, ['providers', name, 'tokenRef'], ''),
             onChange: (value: ConfigValue) => update(['providers', name, 'tokenRef'], value),
             hint: t('credentialHint'),
           })],
+          isGitea && !instances.length ? check('single', config.providers.gitea) : null,
           isGitea ? h('button', {
             className: 'dsh-git-secondary', type: 'button',
             onClick: () => updateInstances([...instances, { origin: '', baseUrl: '', tokenRef: '' }]),
@@ -321,14 +375,36 @@ const copy = {
           }
         };
 
+        const check = (key: string, connection: { baseUrl: string; tokenRef: string }): ElementNode => {
+          const signature = JSON.stringify([connection, config.requestTimeoutMs]);
+          const result = state.checks?.[key];
+          const current = result?.signature === signature ? result : undefined;
+          const run = async (): Promise<void> => {
+            const pending = { signature, pending: true };
+            setState(value => ({ ...value, checks: { ...value.checks, [key]: pending } }));
+            try {
+              const response = await testConnection(connection, config.requestTimeoutMs);
+              setState(value => value.checks?.[key] !== pending ? value : ({ ...value, checks: { ...value.checks, [key]: { signature, pending: false, ok: true, message: `${t('connected')} ${response.login}` } } }));
+            } catch (error) {
+              setState(value => value.checks?.[key] !== pending ? value : ({ ...value, checks: { ...value.checks, [key]: { signature, pending: false, ok: false, message: error instanceof Error ? error.message : String(error) } } }));
+            }
+          };
+          return h('div', { className: 'dsh-git-check' },
+            h('div', { className: 'dsh-git-check-row' },
+              h('button', { type: 'button', className: 'dsh-git-secondary', 'aria-label': `${t('test')} ${key === 'single' ? t('gitea') : `${t('instance')} ${Number(key.split('-')[1]) + 1}`}`, disabled: current?.pending || !connection.baseUrl.trim() || !connection.tokenRef.trim(), onClick: run }, t(current?.pending ? 'testing' : 'test')),
+              h('span', { role: 'status', 'aria-live': 'polite', className: current?.ok ? 'dsh-git-saved' : 'dsh-git-error' }, current?.message ?? '')),
+            h('p', { className: 'dsh-git-field-hint' }, t('testHint')));
+        };
+
         return h('section', { className: 'dsh-git-settings' },
           h('header', { className: 'dsh-git-header' },
             h('h1', { className: 'dsh-git-title' }, t('title')),
             h('p', { className: 'dsh-git-description' }, t('description')),
           ),
-          h(ProviderCard, { name: 'github', config, update }),
-          h(ProviderCard, { name: 'gitea', config, update }),
+          h(ProviderCard, { name: 'github', config, update, check }),
+          h(ProviderCard, { name: 'gitea', config, update, check }),
           h('section', { className: 'dsh-git-card dsh-git-general' },
+            h('h2', { className: 'dsh-git-card-title' }, t('general')),
             h(ConfigField, {
               label: t('timeout'),
               type: 'number',
@@ -360,7 +436,7 @@ const copy = {
     }
 
     return {
-      inject: ['slots', 'locale', 'configForms'],
+      inject: ['slots', 'locale', 'configForms', 'connection'],
       apply(ctx: ClientContext): void {
         ctx.effect(() => ctx.locale.register(NS, copy), 'git plugin settings translations');
         const t = ctx.locale.bind(NS);
@@ -369,23 +445,35 @@ const copy = {
           const style = document.createElement('style');
           style.dataset.plugin = 'dsh-git-connect';
           style.textContent = `
-            .dsh-git-settings { width: 100%; max-width: 760px; color: var(--dsw-alias-label-primary); display: flex; flex-direction: column; gap: 16px; }
-            .dsh-git-header { display: flex; flex-direction: column; gap: 6px; }
-            .dsh-git-title, .dsh-git-card-title { margin: 0; font-size: 16px; font-weight: 600; }
-            .dsh-git-description, .dsh-git-status, .dsh-git-field-hint { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; margin: 0; }
-            .dsh-git-card { background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-            .dsh-git-card-title { font-size: 14px; }
-            .dsh-git-instance { display: flex; flex-direction: column; gap: 14px; border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 14px; }
-            .dsh-git-secondary { align-self: flex-start; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); cursor: pointer; font: inherit; font-size: 13px; padding: 8px 12px; }
-            .dsh-git-field { display: flex; flex-direction: column; gap: 6px; }
+            .dsh-git-settings { width: 100%; max-width: 880px; color: var(--dsw-alias-label-primary); font: inherit; display: flex; flex-direction: column; gap: 24px; padding-bottom: 24px; }
+            .dsh-git-header { display: flex; flex-direction: column; gap: 8px; }
+            .dsh-git-title { margin: 0; font-size: 22px; line-height: 30px; font-weight: 650; letter-spacing: -.4px; }
+            .dsh-git-description, .dsh-git-status, .dsh-git-field-hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 19px; margin: 0; max-width: 72ch; overflow-wrap: anywhere; }
+            .dsh-git-card { min-width: 0; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 18px; }
+            .dsh-git-provider-heading, .dsh-git-instance-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+            .dsh-git-provider-heading { justify-content: flex-start; }
+            .dsh-git-card-title { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; }
+            .dsh-git-count { font-size: 12px; padding: 1px 8px; border-radius: 12px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); }
+            .dsh-git-instance { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 20px; }
+            .dsh-git-instance-heading, .dsh-git-instance > .dsh-git-field:nth-child(2), .dsh-git-check { grid-column: 1 / -1; }
+            .dsh-git-instance-heading .dsh-git-card-title { font-size: 13px; }
+            .dsh-git-secondary, .dsh-git-remove, .dsh-git-save { cursor: pointer; font: inherit; font-size: 13px; line-height: 20px; border-radius: 7px; padding: 8px 14px; }
+            .dsh-git-secondary { align-self: flex-start; border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+            .dsh-git-remove { border: 0; background: transparent; color: var(--dsw-alias-state-error-primary); padding: 4px 0 4px 8px; }
+            .dsh-git-field { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
             .dsh-git-field-label { font-size: 13px; color: var(--dsw-alias-label-primary); }
-            .dsh-git-input { box-sizing: border-box; width: 100%; height: 36px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; padding: 0 10px; outline: none; }
-            .dsh-git-input:focus { border-color: var(--dsw-alias-brand-primary); }
-            .dsh-git-actions { display: flex; align-items: center; gap: 12px; }
-            .dsh-git-save { border: 0; border-radius: 6px; background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); cursor: pointer; font: inherit; font-size: 13px; padding: 9px 16px; }
-            .dsh-git-save:disabled { cursor: default; opacity: .6; }
-            .dsh-git-saved { color: var(--dsw-alias-state-success-primary); font-size: 13px; }
-            .dsh-git-error { color: var(--dsw-alias-state-error-primary); font-size: 13px; line-height: 20px; margin: 0; }
+            .dsh-git-input { box-sizing: border-box; width: 100%; height: 40px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; padding: 0 12px; }
+            .dsh-git-input:focus-visible, .dsh-git-settings button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 3px; }
+            .dsh-git-check { display: flex; flex-direction: column; gap: 8px; }
+            .dsh-git-check-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+            .dsh-git-general { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+            .dsh-git-general > h2 { grid-column: 1 / -1; }
+            .dsh-git-actions { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 18px; }
+            .dsh-git-save { border: 0; background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); }
+            .dsh-git-settings button:disabled { cursor: default; opacity: .55; }
+            .dsh-git-saved { color: var(--dsw-alias-state-success-primary); font-size: 13px; overflow-wrap: anywhere; }
+            .dsh-git-error { color: var(--dsw-alias-state-error-primary); font-size: 13px; line-height: 20px; margin: 0; overflow-wrap: anywhere; }
+            @media (max-width: 600px) { .dsh-git-card { padding: 16px; } .dsh-git-instance, .dsh-git-general { grid-template-columns: minmax(0, 1fr); } }
           `;
           document.head.appendChild(style);
           return () => style.remove();
@@ -395,7 +483,7 @@ const copy = {
           name: 'plugins.bundle.config',
           key: 'dsh-git-connect',
           locale: NS,
-        }, makePage(t, form)));
+        }, makePage(t, form, ctx.connection)));
       },
     };
   },

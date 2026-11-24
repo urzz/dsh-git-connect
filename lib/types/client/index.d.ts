@@ -58,6 +58,25 @@ interface SlotsApi {
 }
 interface ClientContext {
     effect(callback: () => void | (() => void), label?: string): void;
+    connection: {
+        rpc: {
+            call(prefix: string, method: string, input: unknown): Promise<{
+                ok: true;
+                value: {
+                    login: string;
+                };
+            } | {
+                ok: false;
+                error: {
+                    code: string;
+                    message: string;
+                    details?: {
+                        status?: number;
+                    };
+                };
+            }>;
+        };
+    };
     locale: LocaleApi;
     configForms: {
         get(id: string): ConfigForm | undefined;
@@ -84,7 +103,7 @@ interface ConfigFieldProps {
     hint?: string | null;
     value: FieldValue;
     onChange(value: FieldValue): void;
-    type?: 'text' | 'number';
+    type?: 'text' | 'number' | 'password';
     min?: number;
     max?: number;
 }
@@ -92,12 +111,22 @@ interface ProviderCardProps {
     name: ProviderName;
     config: GitConfig;
     update(path: ConfigPath, value: ConfigValue): void;
+    check(key: string, connection: {
+        baseUrl: string;
+        tokenRef: string;
+    }): unknown;
 }
 interface PageState {
     status: 'loading' | 'ready' | 'unavailable' | string;
     snapshot: ConfigSnapshot | null;
     config: GitConfig | null;
     error: Error | null;
+    checks?: Record<string, {
+        signature: string;
+        pending: boolean;
+        ok?: boolean;
+        message?: string;
+    }>;
     saving: boolean;
     saved: boolean;
 }
@@ -114,6 +143,23 @@ declare const copy: {
         originHint: string;
         instancesHint: string;
         instance: string;
+        test: string;
+        testing: string;
+        connected: string;
+        testHint: string;
+        general: string;
+        failures: {
+            validation: string;
+            authentication: string;
+            http: string;
+            network: string;
+            timeout: string;
+            cancelled: string;
+            redirect: string;
+            response: string;
+            forbidden: string;
+            'not-found': string;
+        };
         addInstance: string;
         removeInstance: string;
         baseUrl: string;
@@ -139,6 +185,23 @@ declare const copy: {
         originHint: string;
         instancesHint: string;
         instance: string;
+        test: string;
+        testing: string;
+        connected: string;
+        testHint: string;
+        general: string;
+        failures: {
+            validation: string;
+            authentication: string;
+            http: string;
+            network: string;
+            timeout: string;
+            cancelled: string;
+            redirect: string;
+            response: string;
+            forbidden: string;
+            'not-found': string;
+        };
         addInstance: string;
         removeInstance: string;
         baseUrl: string;

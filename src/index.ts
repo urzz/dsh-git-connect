@@ -351,7 +351,19 @@ interface RequestConfig {
   body?: JsonObject;
 }
 
+interface ConnectionContext {
+  connection: {
+    rpc: {
+      handle(channel: string, handler: (
+        endpoint: string, payload: unknown, signal: AbortSignal,
+        peer: { principal: { kind: string } },
+      ) => Promise<ConnectionTestResult>): unknown;
+    };
+  };
+}
+
 interface PluginContext {
+  inject?(dependencies: string[], callback: (ctx: ConnectionContext) => void): unknown;
   tools: {
     register(tool: unknown): void;
   };
@@ -488,7 +500,85 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
   }
 }
 
+type ConnectionTestResult =
+  | { ok: true; value: { login: string } }
+  | { ok: false; error: { code: string; message: string; details: { status?: number } } };
+
+function connectionFailure(code: string, message: string, status?: number): ConnectionTestResult {
+  return { ok: false, error: { code, message, details: status === undefined ? {} : { status } } };
+}
+
+/** Test an unsaved Gitea draft. Never include credentials or upstream error bodies in results. */
+export async function testConnection(payload: unknown, signal: AbortSignal): Promise<ConnectionTestResult> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return connectionFailure('validation', 'Connection draft must be an object');
+  }
+  const { baseUrl, tokenRef, timeoutMs } = payload as Record<string, unknown>;
+  if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
+    return connectionFailure('validation', 'baseUrl must be a non-empty HTTP(S) URL');
+  }
+  let url: URL;
+  try { url = new URL(baseUrl.trim()); } catch {
+    return connectionFailure('validation', 'baseUrl must be a valid HTTP(S) URL');
+  }
+  // Require explicit authority and check raw delimiters: URL normalizes empty userinfo/query/hash away.
+  const authority = baseUrl.trim().match(/^https?:\/\/([^/\\?#]*)/i)?.[1];
+  if (authority === undefined || authority.includes('@') || /[\\?#]/.test(baseUrl)
+    || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    return connectionFailure('validation', 'baseUrl must use HTTP(S) without userinfo, query or hash');
+  }
+  if (typeof tokenRef !== 'string' || !tokenRef.trim() || /[\r\n]/.test(tokenRef)) {
+    return connectionFailure('validation', 'tokenRef must be a non-empty single-line token');
+  }
+  if (!Number.isInteger(timeoutMs) || (timeoutMs as number) < 1000 || (timeoutMs as number) > 2147483647) {
+    return connectionFailure('validation', 'timeoutMs must be an integer from 1000 to 2147483647');
+  }
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/user`;
+  const timeout = AbortSignal.timeout(timeoutMs as number);
+  const combined = AbortSignal.any([signal, timeout]);
+  try {
+    combined.throwIfAborted();
+    const response = await fetch(url, {
+      method: 'GET', redirect: 'manual', signal: combined,
+      headers: { Authorization: `token ${tokenRef.trim()}`, Accept: 'application/json' },
+    });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return connectionFailure('redirect', 'Gitea redirected the request; use the final API base URL', response.status);
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return response.status === 401 || response.status === 403
+        ? connectionFailure('authentication', 'Gitea authentication failed', response.status)
+        : connectionFailure('http', 'Gitea returned an HTTP error', response.status);
+    }
+    let data: unknown;
+    try { data = await response.json(); } catch (error) {
+      if (combined.aborted) throw error;
+      return connectionFailure('response', 'Gitea returned invalid JSON');
+    }
+    const login = data && typeof data === 'object' ? (data as Record<string, unknown>).login : undefined;
+    if (typeof login !== 'string' || !login.trim()) {
+      return connectionFailure('response', 'Gitea response did not include a login');
+    }
+    return { ok: true, value: { login } };
+  } catch {
+    if (signal.aborted) return connectionFailure('cancelled', 'Connection test was cancelled');
+    if (timeout.aborted) return connectionFailure('timeout', 'Gitea connection test timed out');
+    return connectionFailure('network', 'Could not reach Gitea');
+  }
+}
+
 export function apply(ctx: PluginContext, config: Config): void {
+  // Cordis binds the contribution to the injected Context and disposes it with the service.
+  // Keep tools usable in compositions without a browser Connection service.
+  ctx.inject?.(['connection'], connectionCtx => {
+    connectionCtx.connection.rpc.handle('/git-connect', async (endpoint, payload, signal, peer) => {
+      if (peer.principal.kind !== 'owner') return connectionFailure('forbidden', 'Connection tests require the owner');
+      if (endpoint !== 'connection-test') return connectionFailure('not-found', 'Unknown Git Connect operation');
+      return testConnection(payload, signal);
+    });
+  });
   ctx.tools.register(defineTool({
     name: 'git_host',
     description: 'Read and manage repositories, Issues and Pull Requests through GitHub or Gitea. Supports repository metadata/listing and Issue management. Both providers support pull_request_list/get/files/diff/create/update/close/reopen/comment_list/comment/merge. PR comments are ordinary conversation comments, not reviews. Merge requires explicit merge_method; optional head_sha guards against changed commits. GitHub supports merge/rebase/squash; Gitea also supports rebase-merge/fast-forward-only. GitHub source branch deletion follows repository settings. Both providers also support workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run; GitHub returns the latest execution). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Gitea instances are selected automatically from the current working directory repository origin when an instance list is configured; unmatched or ambiguous origins fail. Authentication uses the selected instance token configured in the plugin; never include tokens in tool arguments.',

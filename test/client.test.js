@@ -24,6 +24,9 @@ function mountPage(instances) {
   let result = true;
   let duringSave;
   const writes = [];
+  const checks = [];
+  let checkResponse = { ok: true, value: { login: 'test-user' } };
+  let checkTransport;
   const React = {
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
     useState(initial) {
@@ -61,6 +64,10 @@ function mountPage(instances) {
     effect(callback) { callback(); },
     locale: { register() {}, bind: () => key => key },
     configForms: { get: () => form },
+    connection: { rpc: { async call(prefix, method, input) {
+      checks.push({ prefix, method, input });
+      return checkTransport ? checkTransport() : checkResponse;
+    } } },
     slots: {
       inject(name, callback) { callback(); },
       register(options, component) { Page = component; },
@@ -78,7 +85,10 @@ function mountPage(instances) {
   Page();
   effect();
   return {
-    nodes, writes,
+    nodes, writes, checks,
+    test: (index = 0) => nodes('button').filter(node => node.children.includes('test'))[index].props.onClick(),
+    setCheckResponse(value) { checkResponse = value; },
+    setCheckTransport(value) { checkTransport = value; },
     saveButton: () => nodes('button').find(node => node.props.className === 'dsh-git-save'),
     save: () => nodes('button').find(node => node.props.className === 'dsh-git-save').props.onClick(),
     click(label, index = 0) { nodes('button').filter(node => node.children.includes(label))[index].props.onClick(); },
@@ -203,3 +213,44 @@ for (const failure of [false, new Error('network failure')]) {
     assert.ok(page.nodes('p').some(node => node.props.className === 'dsh-git-error'));
   });
 }
+
+
+test('checks use unsaved instance inputs without writing configuration; tokens stay masked', async () => {
+  const page = mountPage([{ origin: 'git@one.example:', baseUrl: 'https://one.example/api/v1', tokenRef: 'one' }]);
+  page.edit(3, 'https://draft.example/api/v1');
+  page.edit(4, 'draft-token');
+  assert.equal(page.nodes('input')[4].props.type, 'password');
+  await page.test();
+  assert.equal(page.writes.length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(page.checks[0])), {
+    prefix: '/git-connect', method: 'connection-test',
+    input: { baseUrl: 'https://draft.example/api/v1', tokenRef: 'draft-token', timeoutMs: 30000 },
+  });
+  assert.ok(page.nodes('span').some(node => node.children.includes('connected test-user')));
+  page.edit(4, 'changed');
+  assert.ok(!page.nodes('span').some(node => node.children.includes('connected test-user')));
+});
+
+test('checks display Host failures and allow retry', async () => {
+  const page = mountPage([]);
+  page.setCheckResponse({ ok: false, error: { code: 'authentication', message: 'Token rejected' } });
+  await page.test();
+  assert.ok(page.nodes('span').some(node => node.children.includes('failures.authentication')));
+  page.setCheckResponse({ ok: true, value: { login: 'retry-user' } });
+  await page.test();
+  assert.ok(page.nodes('span').some(node => node.children.includes('connected retry-user')));
+});
+
+test('an earlier check cannot replace a newer result', async () => {
+  const page = mountPage([]);
+  let finishFirst;
+  page.setCheckTransport(() => new Promise(resolve => { finishFirst = resolve; }));
+  const first = page.test();
+  assert.ok(page.nodes('button').some(node => node.children.includes('testing') && node.props.disabled));
+  page.edit(2, 'https://new.example/api/v1');
+  page.setCheckTransport(() => ({ ok: true, value: { login: 'new-user' } }));
+  await page.test();
+  finishFirst({ ok: true, value: { login: 'old-user' } });
+  await first;
+  assert.ok(page.nodes('span').some(node => node.children.includes('connected new-user')));
+});

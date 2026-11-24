@@ -143,7 +143,19 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     maxPageSize: z<number, number, "volatile-defined">;
 }>>, "plain">;
 export type Config = ReturnType<typeof Config>;
+interface ConnectionContext {
+    connection: {
+        rpc: {
+            handle(channel: string, handler: (endpoint: string, payload: unknown, signal: AbortSignal, peer: {
+                principal: {
+                    kind: string;
+                };
+            }) => Promise<ConnectionTestResult>): unknown;
+        };
+    };
+}
 interface PluginContext {
+    inject?(dependencies: string[], callback: (ctx: ConnectionContext) => void): unknown;
     tools: {
         register(tool: unknown): void;
     };
@@ -181,5 +193,22 @@ interface PluginContext {
         };
     } | undefined;
 }
+type ConnectionTestResult = {
+    ok: true;
+    value: {
+        login: string;
+    };
+} | {
+    ok: false;
+    error: {
+        code: string;
+        message: string;
+        details: {
+            status?: number;
+        };
+    };
+};
+/** Test an unsaved Gitea draft. Never include credentials or upstream error bodies in results. */
+export declare function testConnection(payload: unknown, signal: AbortSignal): Promise<ConnectionTestResult>;
 export declare function apply(ctx: PluginContext, config: Config): void;
 export {};
