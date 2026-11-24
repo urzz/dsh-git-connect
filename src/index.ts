@@ -1,7 +1,7 @@
 import { defineTool, type InferArgs, type ToolRunContext } from '@deepseek-ai/dsh-tools';
 import z from '@deepseek-ai/schemastery';
 
-export const inject = { required: ['tools'], optional: ['workingDirectory', 'subprocess'] };
+export const inject = ['tools'];
 
 const GiteaInstance: z<{ origin: string; baseUrl: string; tokenRef: string }> = z.object({
   origin: z.string().required(),
@@ -355,10 +355,10 @@ interface PluginContext {
   tools: {
     register(tool: unknown): void;
   };
-  workingDirectory?: {
+  get(name: 'workingDirectory'): {
     ensure(agent: NonNullable<ToolRunContext['agent']>, signal: AbortSignal): Promise<string>;
-  };
-  subprocess?: {
+  } | undefined;
+  get(name: 'subprocess'): {
     resolveExecutable(command: string, env: undefined, signal: AbortSignal): Promise<string>;
     spawn(spec: {
       argv: readonly string[]; cwd: string; signal: AbortSignal; graceMs: number;
@@ -367,7 +367,7 @@ interface PluginContext {
       done: Promise<{ exitCode: number | null }>;
       collected: { stdout?: { readFrom(offset: number): { text: string; lossy: boolean } } };
     };
-  };
+  } | undefined;
 }
 
 // Normalize clone URL forms without equating different hosts, ports or path prefixes.
@@ -386,13 +386,15 @@ function originKey(value: string): string {
 async function selectGitea(ctx: PluginContext, config: ResolvedConfig, exec: ToolRunContext): Promise<void> {
   const instances = config.providers.gitea.instances;
   if (!instances.length) return;
-  if (!exec.agent || !ctx.workingDirectory || !ctx.subprocess) {
+  const workingDirectory = ctx.get('workingDirectory');
+  const subprocess = ctx.get('subprocess');
+  if (!exec.agent || !workingDirectory || !subprocess) {
     throw new Error('Gitea instance selection requires an agent, workingDirectory and subprocess services');
   }
   const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(config.requestTimeoutMs)]);
-  const cwd = await ctx.workingDirectory.ensure(exec.agent, signal);
-  const git = await ctx.subprocess.resolveExecutable('git', undefined, signal);
-  const proc = ctx.subprocess.spawn({
+  const cwd = await workingDirectory.ensure(exec.agent, signal);
+  const git = await subprocess.resolveExecutable('git', undefined, signal);
+  const proc = subprocess.spawn({
     argv: [git, 'remote', 'get-url', 'origin'], cwd, signal, graceMs: 1000,
     stdio: { stdin: 'ignore', stdout: { maxBytes: 16384 }, stderr: { maxBytes: 4096 } },
   });

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apply, Config } from '../lib/index.js';
+import { createRequire } from 'node:module';
+import { apply, Config, inject } from '../lib/index.js';
+
+const require = createRequire(import.meta.url);
+const { Context } = createRequire(require.resolve('@deepseek-ai/dsh-tools'))('@deepseek-ai/cordis');
 
 const instances = [
   { origin: 'https://git.one.example', baseUrl: 'https://api.one.example/api/v1', tokenRef: 'one' },
@@ -12,6 +16,7 @@ function setup(config, origin, options = {}) {
   let tool;
   const calls = [];
   const ctx = {
+    get(name) { return this[name]; },
     tools: { register(value) { tool = value; } },
     workingDirectory: { async ensure(agent, signal) { assert.equal(agent.id, 'agent'); signal.throwIfAborted(); return '/session/current'; } },
     subprocess: {
@@ -115,6 +120,35 @@ test('multi-instance selection retains session cancellation before reading origi
   await assert.rejects(tool.execute(args, { agent: { id: 'agent' }, signal: controller.signal }), /cancelled by session/);
   assert.equal(calls.length, 0);
   assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test('Cordis activates with only tools and resolves workspace services when needed', async t => {
+  const ctx = new Context();
+  t.after(() => ctx.fiber.dispose());
+  let tool;
+  ctx.provide('tools', { register(value) { tool = value; } });
+  const cfg = config([]);
+  const fiber = ctx.plugin({ inject, apply }, cfg);
+  await fiber.await();
+  assert.ok(tool, 'the plugin must register its tool without workspace services');
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => Response.json({}));
+  await tool.execute(args, exec());
+  cfg.providers.gitea.instances = { get: () => instances };
+  await assert.rejects(tool.execute(args, exec()), /requires an agent, workingDirectory and subprocess/);
+  ctx.provide('workingDirectory', { async ensure() { return '/session/current'; } });
+  await assert.rejects(tool.execute(args, exec()), /requires an agent, workingDirectory and subprocess/);
+  ctx.provide('subprocess', {
+    async resolveExecutable() { return '/usr/bin/git'; },
+    spawn() {
+      return {
+        done: Promise.resolve({ exitCode: 0 }),
+        collected: { stdout: { readFrom() { return { text: 'git@git.one.example:owner/repo.git', lossy: false }; } } },
+      };
+    },
+  });
+  await tool.execute(args, exec());
+  assert.equal(fetchMock.mock.callCount(), 2);
+  assert.equal(String(fetchMock.mock.calls[1].arguments[0]), 'https://api.one.example/api/v1/repos/owner/repo');
 });
 
 test('empty instance list retains single-instance mode without workspace services', async t => {

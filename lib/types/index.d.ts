@@ -1,9 +1,6 @@
 import { type ToolRunContext } from '@deepseek-ai/dsh-tools';
 import z from '@deepseek-ai/schemastery';
-export declare const inject: {
-    required: string[];
-    optional: string[];
-};
+export declare const inject: string[];
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     providers: z<Schemastery.ObjectS<NoInfer<{
         github: z<Schemastery.ObjectS<NoInfer<{
@@ -150,10 +147,10 @@ interface PluginContext {
     tools: {
         register(tool: unknown): void;
     };
-    workingDirectory?: {
+    get(name: 'workingDirectory'): {
         ensure(agent: NonNullable<ToolRunContext['agent']>, signal: AbortSignal): Promise<string>;
-    };
-    subprocess?: {
+    } | undefined;
+    get(name: 'subprocess'): {
         resolveExecutable(command: string, env: undefined, signal: AbortSignal): Promise<string>;
         spawn(spec: {
             argv: readonly string[];
@@ -182,7 +179,7 @@ interface PluginContext {
                 };
             };
         };
-    };
+    } | undefined;
 }
 export declare function apply(ctx: PluginContext, config: Config): void;
 export {};
