@@ -299,7 +299,7 @@ for (const provider of providers) {
     const values = { baseUrl: 'https://old.example/api', tokenRef: 'old-token', requestTimeoutMs: 3000, maxPageSize: 20 };
     const live = key => ({ get: () => values[key] });
     const registered = tool({
-      providers: { ...Config({}).providers, [provider]: { baseUrl: live('baseUrl'), tokenRef: live('tokenRef') } },
+      providers: { ...Config({}).providers, [provider]: { ...Config({}).providers[provider], baseUrl: live('baseUrl'), tokenRef: live('tokenRef') } },
       requestTimeoutMs: live('requestTimeoutMs'), maxPageSize: live('maxPageSize'),
     });
     const requests = [];

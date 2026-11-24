@@ -5,12 +5,23 @@ interface ModuleLoader {
 type ProviderName = 'github' | 'gitea';
 type ConfigPath =
   | readonly ['providers', ProviderName, 'baseUrl' | 'tokenRef']
+  | readonly ['providers', 'gitea', 'instances']
   | readonly ['requestTimeoutMs' | 'maxPageSize'];
 
-type ConfigValue = string | number;
+type FieldValue = string | number;
+type ConfigValue = FieldValue | GiteaInstance[];
+
+interface GiteaInstance {
+  origin: string;
+  baseUrl: string;
+  tokenRef: string;
+}
 
 interface GitConfig {
-  providers: Record<ProviderName, { baseUrl: string; tokenRef: string }>;
+  providers: {
+    github: { baseUrl: string; tokenRef: string };
+    gitea: { baseUrl: string; tokenRef: string; instances: GiteaInstance[] };
+  };
   requestTimeoutMs: number;
   maxPageSize: number;
 }
@@ -73,8 +84,8 @@ interface ReactLike {
 interface ConfigFieldProps {
   label: string;
   hint?: string | null;
-  value: ConfigValue;
-  onChange(value: ConfigValue): void;
+  value: FieldValue;
+  onChange(value: FieldValue): void;
   type?: 'text' | 'number';
   min?: number;
   max?: number;
@@ -102,7 +113,7 @@ function cloneConfig(config: GitConfig): GitConfig {
     ...config,
     providers: {
       github: { ...config.providers.github },
-      gitea: { ...config.providers.gitea },
+      gitea: { ...config.providers.gitea, instances: (config.providers.gitea.instances ?? []).map(instance => ({ ...instance })) },
     },
   };
 }
@@ -114,6 +125,12 @@ const copy = {
     description: 'Configure the GitHub and Gitea connections used by the git_host tool.',
     github: 'GitHub',
     gitea: 'Gitea',
+    origin: 'Repository clone URL prefix',
+    originHint: 'For example: https://git.example.com, git@git.example.com: or ssh://git@git.example.com:2222.',
+    instancesHint: 'When instances are configured, they replace the single connection. Remove all instances to use the single connection again.',
+    instance: 'Instance',
+    addInstance: 'Add instance',
+    removeInstance: 'Remove instance',
     baseUrl: 'API base URL',
     tokenRef: 'Access token',
     timeout: 'Request timeout (ms)',
@@ -133,6 +150,12 @@ const copy = {
     description: '配置 git_host 工具使用的 GitHub 和 Gitea 连接。',
     github: 'GitHub',
     gitea: 'Gitea',
+    origin: '仓库 clone URL 匹配前缀',
+    originHint: '例如：https://git.example.com、git@git.example.com: 或 ssh://git@git.example.com:2222。',
+    instancesHint: '配置实例后将使用实例列表；删除全部实例后恢复使用单实例连接。',
+    instance: '实例',
+    addInstance: '新增实例',
+    removeInstance: '删除实例',
     baseUrl: 'API 基础地址',
     tokenRef: '访问 Token',
     timeout: '请求超时（毫秒）',
@@ -181,20 +204,42 @@ const copy = {
 
       function ProviderCard({ name, config, update }: ProviderCardProps): ElementNode {
         const isGitea = name === 'gitea';
+        const instances = getConfigValue<GiteaInstance[]>(config, ['providers', 'gitea', 'instances'], []);
+        const updateInstances = (next: GiteaInstance[]): void => update(['providers', 'gitea', 'instances'], next);
         return h('section', { className: 'dsh-git-card' },
           h('h2', { className: 'dsh-git-card-title' }, isGitea ? t('gitea') : t('github')),
-          h(ConfigField, {
+          isGitea ? h('p', { className: 'dsh-git-field-hint' }, t('instancesHint')) : null,
+          isGitea && instances.length ? instances.map((instance, index) => h('section', { className: 'dsh-git-instance', key: index },
+            h('h3', { className: 'dsh-git-card-title' }, `${t('instance')} ${index + 1}`),
+            ...(['origin', 'baseUrl', 'tokenRef'] as const).map(field => h(ConfigField, {
+              key: field,
+              label: t(field),
+              value: instance[field],
+              hint: t(field === 'origin' ? 'originHint' : field === 'baseUrl' ? 'giteaHint' : 'credentialHint'),
+              onChange: (value: FieldValue) => updateInstances(instances.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: String(value) } : item)),
+            })),
+            h('button', {
+              className: 'dsh-git-secondary', type: 'button',
+              onClick: () => updateInstances(instances.filter((_, itemIndex) => itemIndex !== index)),
+            }, t('removeInstance')),
+          )) : [h(ConfigField, {
+            key: 'baseUrl',
             label: t('baseUrl'),
             value: getConfigValue(config, ['providers', name, 'baseUrl'], ''),
             onChange: (value: ConfigValue) => update(['providers', name, 'baseUrl'], value),
             hint: isGitea ? t('giteaHint') : null,
           }),
           h(ConfigField, {
+            key: 'tokenRef',
             label: t('tokenRef'),
             value: getConfigValue(config, ['providers', name, 'tokenRef'], ''),
             onChange: (value: ConfigValue) => update(['providers', name, 'tokenRef'], value),
             hint: t('credentialHint'),
-          }),
+          })],
+          isGitea ? h('button', {
+            className: 'dsh-git-secondary', type: 'button',
+            onClick: () => updateInstances([...instances, { origin: '', baseUrl: '', tokenRef: '' }]),
+          }, t('addInstance')) : null,
         );
       }
 
@@ -251,10 +296,13 @@ const copy = {
               ['providers', 'github', 'tokenRef'],
               ['providers', 'gitea', 'baseUrl'],
               ['providers', 'gitea', 'tokenRef'],
+              ['providers', 'gitea', 'instances'],
               ['requestTimeoutMs'],
               ['maxPageSize'],
             ];
-            const operations: ConfigOperation[] = paths.map(path => ({ op: 'set', path, value: getConfigValue(config, path, '') }));
+            const operations: ConfigOperation[] = paths.map(path => ({
+              op: 'set', path, value: getConfigValue<ConfigValue>(config, path, path[2] === 'instances' ? [] : ''),
+            }));
             const accepted = await form?.mutate(operations, state.snapshot?.revision);
             if (!accepted) throw new Error('The configuration was changed elsewhere. Reload and try again.');
             const snapshot = form?.getSnapshot();
@@ -327,6 +375,8 @@ const copy = {
             .dsh-git-description, .dsh-git-status, .dsh-git-field-hint { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; margin: 0; }
             .dsh-git-card { background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
             .dsh-git-card-title { font-size: 14px; }
+            .dsh-git-instance { display: flex; flex-direction: column; gap: 14px; border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 14px; }
+            .dsh-git-secondary { align-self: flex-start; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); cursor: pointer; font: inherit; font-size: 13px; padding: 8px 12px; }
             .dsh-git-field { display: flex; flex-direction: column; gap: 6px; }
             .dsh-git-field-label { font-size: 13px; color: var(--dsw-alias-label-primary); }
             .dsh-git-input { box-sizing: border-box; width: 100%; height: 36px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; padding: 0 10px; outline: none; }

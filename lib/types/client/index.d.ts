@@ -5,13 +5,26 @@ interface ModuleLoader {
     }): void;
 }
 type ProviderName = 'github' | 'gitea';
-type ConfigPath = readonly ['providers', ProviderName, 'baseUrl' | 'tokenRef'] | readonly ['requestTimeoutMs' | 'maxPageSize'];
-type ConfigValue = string | number;
+type ConfigPath = readonly ['providers', ProviderName, 'baseUrl' | 'tokenRef'] | readonly ['providers', 'gitea', 'instances'] | readonly ['requestTimeoutMs' | 'maxPageSize'];
+type FieldValue = string | number;
+type ConfigValue = FieldValue | GiteaInstance[];
+interface GiteaInstance {
+    origin: string;
+    baseUrl: string;
+    tokenRef: string;
+}
 interface GitConfig {
-    providers: Record<ProviderName, {
-        baseUrl: string;
-        tokenRef: string;
-    }>;
+    providers: {
+        github: {
+            baseUrl: string;
+            tokenRef: string;
+        };
+        gitea: {
+            baseUrl: string;
+            tokenRef: string;
+            instances: GiteaInstance[];
+        };
+    };
     requestTimeoutMs: number;
     maxPageSize: number;
 }
@@ -69,8 +82,8 @@ interface ReactLike {
 interface ConfigFieldProps {
     label: string;
     hint?: string | null;
-    value: ConfigValue;
-    onChange(value: ConfigValue): void;
+    value: FieldValue;
+    onChange(value: FieldValue): void;
     type?: 'text' | 'number';
     min?: number;
     max?: number;
@@ -97,6 +110,12 @@ declare const copy: {
         description: string;
         github: string;
         gitea: string;
+        origin: string;
+        originHint: string;
+        instancesHint: string;
+        instance: string;
+        addInstance: string;
+        removeInstance: string;
         baseUrl: string;
         tokenRef: string;
         timeout: string;
@@ -116,6 +135,12 @@ declare const copy: {
         description: string;
         github: string;
         gitea: string;
+        origin: string;
+        originHint: string;
+        instancesHint: string;
+        instance: string;
+        addInstance: string;
+        removeInstance: string;
         baseUrl: string;
         tokenRef: string;
         timeout: string;

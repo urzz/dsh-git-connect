@@ -62,7 +62,29 @@ A profile patch can override endpoints or tokens:
         maxPageSize: 50
 ```
 
-For self-hosted Gitea, set `providers.gitea.baseUrl` to the complete REST API root, such as `https://git.example.com/api/v1`. This supports installations behind a reverse proxy or at a custom API path as well.
+For a single self-hosted Gitea, set `providers.gitea.baseUrl` to the complete REST API root, such as `https://git.example.com/api/v1`. This supports installations behind a reverse proxy or at a custom API path as well.
+
+### Multiple Gitea instances
+
+Add instances in the plugin settings, or configure `providers.gitea.instances`:
+
+```yaml
+providers:
+  gitea:
+    instances:
+      - origin: https://git.company.example
+        baseUrl: https://git.company.example/api/v1
+        tokenRef: '<company-token>'
+      - origin: ssh://git@git.personal.example:2222
+        baseUrl: https://git.personal.example/forge/api/v1
+        tokenRef: '<personal-token>'
+```
+
+Each Gitea call reads `git remote get-url origin` in the current session working directory and selects the matching instance's API root and token. This also applies to `repository_list`. No instance or credential arguments are needed in tool calls. The working directory must be inside a Git repository with an `origin` remote, and DSH must provide the workingDirectory and subprocess services.
+
+`origin` is a clone URL prefix: HTTP(S), `ssh://`, `git://`, and scp-style URLs such as `git@git.example.com:team` are supported. Matching ignores the username, scheme, trailing slash and `.git` suffix; HTTP(S) default ports and SSH port 22 are normalized. Nondefault ports must match explicitly. Hosts must match exactly, paths match at directory boundaries, and the longest matching path prefix wins. For example, `https://git.example.com/forge` matches `git@git.example.com:forge/team/repo.git`. Configure a separate prefix for an SSH host alias or a different SSH port.
+
+A nonempty instance list replaces single-instance routing. Missing, unmatched or equally specific origins fail before sending an API request; the plugin never falls back to another instance's token. When the list is empty, the existing `baseUrl` and `tokenRef` fields keep their single-instance behavior. Saved instance changes take effect on the next call, and a PR preflight and its write share the same selected configuration.
 
 Set each provider's token value in the profile configuration. The tool accepts `provider: github|gitea`, an `action`, and the repository/issue arguments described in its schema.
 

@@ -1,7 +1,13 @@
-import { defineTool, type InferArgs } from '@deepseek-ai/dsh-tools';
+import { defineTool, type InferArgs, type ToolRunContext } from '@deepseek-ai/dsh-tools';
 import z from '@deepseek-ai/schemastery';
 
-export const inject = ['tools'] as const;
+export const inject = { required: ['tools'], optional: ['workingDirectory', 'subprocess'] };
+
+const GiteaInstance: z<{ origin: string; baseUrl: string; tokenRef: string }> = z.object({
+  origin: z.string().required(),
+  baseUrl: z.string().required(),
+  tokenRef: z.string().required(),
+});
 
 export const Config = z.object({
   providers: z.object({
@@ -10,6 +16,7 @@ export const Config = z.object({
       tokenRef: z.string().default('').volatile(),
     }).default({}),
     gitea: z.object({
+      instances: z.array(GiteaInstance).default([]).volatile(),
       baseUrl: z.string().default('https://gitea.com/api/v1').volatile(),
       tokenRef: z.string().default('').volatile(),
     }).default({}),
@@ -32,7 +39,7 @@ interface ProviderConfig {
 interface ResolvedConfig {
   providers: {
     github: ProviderConfig;
-    gitea: ProviderConfig;
+    gitea: ProviderConfig & { instances: (ProviderConfig & { origin: string })[] };
   };
   requestTimeoutMs: number;
   maxPageSize: number;
@@ -46,6 +53,7 @@ function snapshotConfig(input: Config): ResolvedConfig {
         tokenRef: input.providers.github.tokenRef.get(),
       },
       gitea: {
+        instances: input.providers.gitea.instances.get().map(instance => ({ ...instance })),
         baseUrl: input.providers.gitea.baseUrl.get(),
         tokenRef: input.providers.gitea.tokenRef.get(),
       },
@@ -347,6 +355,61 @@ interface PluginContext {
   tools: {
     register(tool: unknown): void;
   };
+  workingDirectory?: {
+    ensure(agent: NonNullable<ToolRunContext['agent']>, signal: AbortSignal): Promise<string>;
+  };
+  subprocess?: {
+    resolveExecutable(command: string, env: undefined, signal: AbortSignal): Promise<string>;
+    spawn(spec: {
+      argv: readonly string[]; cwd: string; signal: AbortSignal; graceMs: number;
+      stdio: { stdin: 'ignore'; stdout: { maxBytes: number }; stderr: { maxBytes: number } };
+    }): {
+      done: Promise<{ exitCode: number | null }>;
+      collected: { stdout?: { readFrom(offset: number): { text: string; lossy: boolean } } };
+    };
+  };
+}
+
+// Normalize clone URL forms without equating different hosts, ports or path prefixes.
+function originKey(value: string): string {
+  const input = text(value, 'Gitea origin');
+  const scp = !input.includes('://') && input.match(/^(?:[^@/:]+@)?([^/:]+):(.*)$/);
+  const url = new URL(scp ? `ssh://${scp[1]}/${scp[2]}` : input);
+  if (!['http:', 'https:', 'ssh:', 'git:'].includes(url.protocol)) {
+    throw new Error('Gitea origin must be an HTTP(S), SSH or git clone URL');
+  }
+  const port = url.protocol === 'ssh:' && url.port === '22' ? '' : url.port;
+  const path = url.pathname.replace(/\/+$/, '').replace(/\.git$/, '').replace(/\/+$/, '');
+  return `${url.hostname.toLowerCase()}${port ? `:${port}` : ''}${path}`;
+}
+
+async function selectGitea(ctx: PluginContext, config: ResolvedConfig, exec: ToolRunContext): Promise<void> {
+  const instances = config.providers.gitea.instances;
+  if (!instances.length) return;
+  if (!exec.agent || !ctx.workingDirectory || !ctx.subprocess) {
+    throw new Error('Gitea instance selection requires an agent, workingDirectory and subprocess services');
+  }
+  const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(config.requestTimeoutMs)]);
+  const cwd = await ctx.workingDirectory.ensure(exec.agent, signal);
+  const git = await ctx.subprocess.resolveExecutable('git', undefined, signal);
+  const proc = ctx.subprocess.spawn({
+    argv: [git, 'remote', 'get-url', 'origin'], cwd, signal, graceMs: 1000,
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 16384 }, stderr: { maxBytes: 4096 } },
+  });
+  const outcome = await proc.done;
+  signal.throwIfAborted();
+  if (outcome.exitCode !== 0) throw new Error('Cannot read repository origin for Gitea instance selection');
+  const output = proc.collected.stdout!.readFrom(0);
+  if (output.lossy) throw new Error('Repository origin exceeds the Gitea selection size limit');
+  const origin = originKey(output.text.trim());
+  const matches = instances.map(instance => ({ instance, key: originKey(instance.origin) }))
+    .filter(({ key }) => origin === key || origin.startsWith(`${key}/`))
+    .sort((a, b) => b.key.length - a.key.length);
+  if (!matches.length) throw new Error('No configured Gitea instance matches repository origin');
+  if (matches[1]?.key.length === matches[0].key.length) {
+    throw new Error('Multiple Gitea instances match repository origin equally; use unique origin prefixes');
+  }
+  Object.assign(config.providers.gitea, matches[0].instance);
 }
 
 function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig {
@@ -426,7 +489,7 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
 export function apply(ctx: PluginContext, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'git_host',
-    description: 'Read and manage repositories, Issues and Pull Requests through GitHub or Gitea. Supports repository metadata/listing and Issue management. Both providers support pull_request_list/get/files/diff/create/update/close/reopen/comment_list/comment/merge. PR comments are ordinary conversation comments, not reviews. Merge requires explicit merge_method; optional head_sha guards against changed commits. GitHub supports merge/rebase/squash; Gitea also supports rebase-merge/fast-forward-only. GitHub source branch deletion follows repository settings. For Gitea, also supports workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Authentication uses the provider token configured in the plugin; never include tokens in tool arguments.',
+    description: 'Read and manage repositories, Issues and Pull Requests through GitHub or Gitea. Supports repository metadata/listing and Issue management. Both providers support pull_request_list/get/files/diff/create/update/close/reopen/comment_list/comment/merge. PR comments are ordinary conversation comments, not reviews. Merge requires explicit merge_method; optional head_sha guards against changed commits. GitHub supports merge/rebase/squash; Gitea also supports rebase-merge/fast-forward-only. GitHub source branch deletion follows repository settings. For Gitea, also supports workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Gitea instances are selected automatically from the current working directory repository origin when an instance list is configured; unmatched or ambiguous origins fail. Authentication uses the selected instance token configured in the plugin; never include tokens in tool arguments.',
     parameters,
     output: {
       schema: outputSchema,
@@ -436,6 +499,7 @@ export function apply(ctx: PluginContext, config: Config): void {
       // Volatile fields stay live between calls; each request uses one coherent snapshot.
       const resolvedConfig = snapshotConfig(config);
       const { page, perPage } = validateArgs(args, resolvedConfig);
+      if (args.provider === 'gitea') await selectGitea(ctx, resolvedConfig, exec);
       const requestConfig = buildRequest({ ...args, page, per_page: perPage }, resolvedConfig);
       if (requestConfig.body) {
         for (const key of Object.keys(requestConfig.body)) {

@@ -9,7 +9,7 @@ for (const provider of ['github', 'gitea']) {
     let tool;
     let registrations = 0;
     apply({ tools: { register(value) { tool = value; registrations++; } } }, {
-      providers: { ...Config({}).providers, [provider]: { baseUrl: live('baseUrl'), tokenRef: live('tokenRef') } },
+      providers: { ...Config({}).providers, [provider]: { ...Config({}).providers[provider], baseUrl: live('baseUrl'), tokenRef: live('tokenRef') } },
       requestTimeoutMs: live('requestTimeoutMs'), maxPageSize: live('maxPageSize'),
     });
     const requests = [];
