@@ -353,11 +353,11 @@ interface RequestConfig {
 
 interface ConnectionContext {
   connection: {
-    rpc: {
-      handle(channel: string, handler: (
-        endpoint: string, payload: unknown, signal: AbortSignal,
-        peer: { principal: { kind: string } },
-      ) => Promise<ConnectionTestResult>): unknown;
+    fetch: {
+      register(route: {
+        path: string; methods: readonly ['POST']; requestBody: 'buffered';
+        fetch(request: Request): Promise<Response>;
+      }): unknown;
     };
   };
 }
@@ -573,10 +573,18 @@ export function apply(ctx: PluginContext, config: Config): void {
   // Cordis binds the contribution to the injected Context and disposes it with the service.
   // Keep tools usable in compositions without a browser Connection service.
   ctx.inject?.(['connection'], connectionCtx => {
-    connectionCtx.connection.rpc.handle('/git-connect', async (endpoint, payload, signal, peer) => {
-      if (peer.principal.kind !== 'owner') return connectionFailure('forbidden', 'Connection tests require the owner');
-      if (endpoint !== 'connection-test') return connectionFailure('not-found', 'Unknown Git Connect operation');
-      return testConnection(payload, signal);
+    // Exact API routes inherit Connection's trust, authentication and owner-only admission.
+    connectionCtx.connection.fetch.register({
+      path: '/api/git-connect/connection-test', methods: ['POST'], requestBody: 'buffered',
+      async fetch(request) {
+        let payload: unknown;
+        try {
+          payload = await request.json();
+        } catch {
+          return Response.json(connectionFailure('validation', 'Expected a JSON connection draft'), { status: 400 });
+        }
+        return Response.json(await testConnection(payload, request.signal));
+      },
     });
   });
   ctx.tools.register(defineTool({

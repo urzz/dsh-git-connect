@@ -59,15 +59,16 @@ function mountPage(instances) {
   vm.runInNewContext(source, {
     window: { __ModuleLoader__: { load(module) { plugin = module.factory(() => React); } } },
     console: { error() {} },
+    async fetch(path, init) {
+      checks.push({ path, ...init, input: JSON.parse(init.body) });
+      const result = await (checkTransport ? checkTransport() : checkResponse);
+      return result instanceof Response ? result : { ok: true, json: async () => result };
+    },
   });
   plugin.apply({
     effect(callback) { callback(); },
     locale: { register() {}, bind: () => key => key },
     configForms: { get: () => form },
-    connection: { rpc: { async call(prefix, method, input) {
-      checks.push({ prefix, method, input });
-      return checkTransport ? checkTransport() : checkResponse;
-    } } },
     slots: {
       inject(name, callback) { callback(); },
       register(options, component) { Page = component; },
@@ -223,12 +224,23 @@ test('checks use unsaved instance inputs without writing configuration; tokens s
   await page.test();
   assert.equal(page.writes.length, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(page.checks[0])), {
-    prefix: '/git-connect', method: 'connection-test',
+    path: '/api/git-connect/connection-test', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: 'https://draft.example/api/v1', tokenRef: 'draft-token', timeoutMs: 30000 }),
     input: { baseUrl: 'https://draft.example/api/v1', tokenRef: 'draft-token', timeoutMs: 30000 },
   });
   assert.ok(page.nodes('span').some(node => node.children.includes('connected test-user')));
   page.edit(4, 'changed');
   assert.ok(!page.nodes('span').some(node => node.children.includes('connected test-user')));
+});
+
+test('HTTP routing failures are visible and allow retry without saving', async () => {
+  const page = mountPage([]);
+  page.setCheckTransport(() => new Response('Method Not Allowed', { status: 405 }));
+  await page.test();
+  assert.ok(page.nodes('span').some(node => node.children.includes('testUnavailable (HTTP 405)')));
+  assert.equal(page.writes.length, 0);
+  page.setCheckTransport(undefined);
+  await page.test();
+  assert.ok(page.nodes('span').some(node => node.children.includes('connected test-user')));
 });
 
 test('checks display Host failures and allow retry', async () => {

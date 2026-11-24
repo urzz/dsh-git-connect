@@ -9,17 +9,24 @@ const draft = { baseUrl: 'https://git.example/forge/api/v1/', tokenRef: 'draft-s
 const signal = () => new AbortController().signal;
 
 function setup(config = Config({})) {
-  let handler;
-  const routes = [];
+  let route;
   apply({
     tools: { register() {} },
     inject(deps, callback) {
       assert.deepEqual(deps, ['connection']);
-      callback({ connection: { rpc: { handle(channel, fn) { routes.push(channel); handler = fn; } } } });
+      callback({ connection: { fetch: { register(value) { route = value; } } } });
     },
   }, config);
-  assert.deepEqual(routes, ['/git-connect']);
-  return (payload = draft, endpoint = 'connection-test', principal = 'owner') => handler(endpoint, payload, signal(), { principal: { kind: principal } });
+  assert.equal(route.path, '/api/git-connect/connection-test');
+  assert.deepEqual(route.methods, ['POST']);
+  assert.equal(route.requestBody, 'buffered');
+  return route;
+}
+
+function request(payload = draft) {
+  return new Request('http://localhost/api/git-connect/connection-test', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
 }
 
 async function server(t, listener) {
@@ -30,9 +37,9 @@ async function server(t, listener) {
   return `http://127.0.0.1:${http.address().port}`;
 }
 
-test('authenticated RPC tests the unsaved draft without changing saved credentials or returning secrets', async t => {
+test('exact API route tests the unsaved draft without changing saved credentials or returning secrets', async t => {
   const config = Config({ providers: { gitea: { tokenRef: 'saved-secret', baseUrl: 'https://saved.example/api/v1' } } });
-  const call = setup(config);
+  const route = setup(config);
   t.mock.method(globalThis, 'fetch', async (url, init) => {
     assert.equal(String(url), 'https://git.example/forge/api/v1/user');
     assert.equal(init.method, 'GET');
@@ -41,14 +48,14 @@ test('authenticated RPC tests the unsaved draft without changing saved credentia
     assert.ok(init.signal instanceof AbortSignal);
     return Response.json({ login: 'alice', token: 'upstream-secret', email: 'private@example.com' });
   });
-  const result = await call();
+  const result = await (await route.fetch(request())).json();
   assert.deepEqual(result, { ok: true, value: { login: 'alice' } });
   assert.equal(config.providers.gitea.tokenRef.get(), 'saved-secret');
   assert.equal(config.providers.gitea.baseUrl.get(), 'https://saved.example/api/v1');
   assert.doesNotMatch(JSON.stringify(result), /secret|email/);
 });
 
-test('Cordis activates tools without Connection and registers RPC when the service arrives', async t => {
+test('Cordis activates tools without Connection and registers the API route when the service arrives', async t => {
   const require = createRequire(import.meta.url);
   const { Context } = createRequire(require.resolve('@deepseek-ai/dsh-tools'))('@deepseek-ai/cordis');
   const ctx = new Context();
@@ -58,21 +65,21 @@ test('Cordis activates tools without Connection and registers RPC when the servi
   const fiber = ctx.plugin({ inject: ['tools'], apply }, Config({}));
   await fiber.await();
   assert.equal(registered, 1);
-  let channel;
-  let handler;
+  let route;
   let resolveRegistration;
   const registration = new Promise(resolve => { resolveRegistration = resolve; });
-  ctx.provide('connection', { rpc: { handle(path, fn) { channel = path; handler = fn; resolveRegistration(); } } });
+  ctx.provide('connection', { fetch: { register(value) { route = value; resolveRegistration(); } } });
   await registration;
-  assert.equal(channel, '/git-connect');
-  assert.equal((await handler('connection-test', {}, signal(), { principal: { kind: 'owner' } })).error.code, 'validation');
+  assert.equal(route.path, '/api/git-connect/connection-test');
+  assert.equal((await (await route.fetch(request({}))).json()).error.code, 'validation');
 });
 
-test('RPC refuses non-owner peers and unknown endpoints before HTTP', async t => {
+test('malformed JSON is rejected before contacting Gitea', async t => {
   const fetch = t.mock.method(globalThis, 'fetch', () => { throw Error('unexpected'); });
-  const call = setup();
-  assert.equal((await call(draft, 'connection-test', 'api-key')).error.code, 'forbidden');
-  assert.equal((await call(draft, 'other')).error.code, 'not-found');
+  const route = setup();
+  const response = await route.fetch(new Request('http://localhost' + route.path, { method: 'POST', body: '{' }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error.code, 'validation');
   assert.equal(fetch.mock.callCount(), 0);
 });
 

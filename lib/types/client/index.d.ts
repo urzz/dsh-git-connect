@@ -58,25 +58,6 @@ interface SlotsApi {
 }
 interface ClientContext {
     effect(callback: () => void | (() => void), label?: string): void;
-    connection: {
-        rpc: {
-            call(prefix: string, method: string, input: unknown): Promise<{
-                ok: true;
-                value: {
-                    login: string;
-                };
-            } | {
-                ok: false;
-                error: {
-                    code: string;
-                    message: string;
-                    details?: {
-                        status?: number;
-                    };
-                };
-            }>;
-        };
-    };
     locale: LocaleApi;
     configForms: {
         get(id: string): ConfigForm | undefined;
@@ -160,6 +141,7 @@ declare const copy: {
             forbidden: string;
             'not-found': string;
         };
+        testUnavailable: string;
         addInstance: string;
         removeInstance: string;
         baseUrl: string;
@@ -202,6 +184,7 @@ declare const copy: {
             forbidden: string;
             'not-found': string;
         };
+        testUnavailable: string;
         addInstance: string;
         removeInstance: string;
         baseUrl: string;

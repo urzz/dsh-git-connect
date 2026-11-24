@@ -57,9 +57,6 @@ interface SlotsApi {
 
 interface ClientContext {
   effect(callback: () => void | (() => void), label?: string): void;
-  connection: { rpc: { call(prefix: string, method: string, input: unknown): Promise<
-    { ok: true; value: { login: string } } | { ok: false; error: { code: string; message: string; details?: { status?: number } } }
-  > } };
   locale: LocaleApi;
   configForms: { get(id: string): ConfigForm | undefined };
   slots: SlotsApi;
@@ -149,6 +146,7 @@ const copy = {
       forbidden: 'Only the owner can test connections.',
       'not-found': 'Connection testing is unavailable. Check the plugin version.',
     },
+    testUnavailable: 'Connection testing is unavailable. Check the plugin and server connection.',
     addInstance: 'Add instance',
     removeInstance: 'Remove instance',
     baseUrl: 'API base URL',
@@ -189,6 +187,7 @@ const copy = {
       forbidden: '仅所有者可以检测连接。',
       'not-found': '连接检测不可用，请检查插件版本。',
     },
+    testUnavailable: '连接检测接口不可用，请检查插件和宿主连接。',
     addInstance: '新增实例',
     removeInstance: '删除实例',
     baseUrl: 'API 基础地址',
@@ -213,9 +212,14 @@ const copy = {
     const h = React.createElement;
     const NS = 'dsh-git-plugin.settings';
 
-    function makePage(t: Translate, form: ConfigForm | undefined, connection: ClientContext['connection']): unknown {
+    function makePage(t: Translate, form: ConfigForm | undefined): unknown {
       async function testConnection(input: { baseUrl: string; tokenRef: string }, timeoutMs: number): Promise<{ login: string }> {
-        const result = await connection.rpc.call('/git-connect', 'connection-test', { baseUrl: input.baseUrl, tokenRef: input.tokenRef, timeoutMs });
+        const response = await fetch('/api/git-connect/connection-test', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ baseUrl: input.baseUrl, tokenRef: input.tokenRef, timeoutMs }),
+        });
+        if (!response.ok) throw new Error(`${t('testUnavailable')} (HTTP ${response.status})`);
+        const result = await response.json();
         if (!result.ok) {
           const { code, message, details } = result.error;
           const translated = Object.hasOwn(copy.en.failures, code) ? t(`failures.${code}`) : message;
@@ -256,7 +260,11 @@ const copy = {
         return h('section', { className: 'dsh-git-card' },
           h('div', { className: 'dsh-git-provider-heading' },
             h('h2', { className: 'dsh-git-card-title' }, isGitea ? t('gitea') : t('github')),
-            isGitea && instances.length ? h('span', { className: 'dsh-git-count' }, String(instances.length)) : null),
+            isGitea && instances.length ? h('span', { className: 'dsh-git-count' }, String(instances.length)) : null,
+            isGitea ? h('button', {
+              className: 'dsh-git-add', type: 'button',
+              onClick: () => updateInstances([...instances, { origin: '', baseUrl: '', tokenRef: '' }]),
+            }, h('span', { 'aria-hidden': true }, '+'), t('addInstance')) : null),
           isGitea ? h('p', { className: 'dsh-git-field-hint' }, t('instancesHint')) : null,
           isGitea && instances.length ? instances.map((instance, index) => h('section', { className: 'dsh-git-instance', key: index },
             h('div', { className: 'dsh-git-instance-heading' },
@@ -290,10 +298,6 @@ const copy = {
             hint: t('credentialHint'),
           })],
           isGitea && !instances.length ? check('single', config.providers.gitea) : null,
-          isGitea ? h('button', {
-            className: 'dsh-git-secondary', type: 'button',
-            onClick: () => updateInstances([...instances, { origin: '', baseUrl: '', tokenRef: '' }]),
-          }, t('addInstance')) : null,
         );
       }
 
@@ -436,7 +440,7 @@ const copy = {
     }
 
     return {
-      inject: ['slots', 'locale', 'configForms', 'connection'],
+      inject: ['slots', 'locale', 'configForms'],
       apply(ctx: ClientContext): void {
         ctx.effect(() => ctx.locale.register(NS, copy), 'git plugin settings translations');
         const t = ctx.locale.bind(NS);
@@ -451,20 +455,23 @@ const copy = {
             .dsh-git-description, .dsh-git-status, .dsh-git-field-hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 19px; margin: 0; max-width: 72ch; overflow-wrap: anywhere; }
             .dsh-git-card { min-width: 0; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 18px; }
             .dsh-git-provider-heading, .dsh-git-instance-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-            .dsh-git-provider-heading { justify-content: flex-start; }
+            .dsh-git-provider-heading { justify-content: flex-start; flex-wrap: wrap; }
+            .dsh-git-add { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; border: 1px solid currentColor; background: var(--dsw-alias-brand-primary, #3565d9); color: var(--dsw-alias-bg-base, #fff); font-weight: 600; }
             .dsh-git-card-title { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; }
             .dsh-git-count { font-size: 12px; padding: 1px 8px; border-radius: 12px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); }
-            .dsh-git-instance { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 20px; }
+            .dsh-git-instance { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; border: 1px solid var(--dsw-alias-border-l1, #8590a566); border-radius: 10px; padding: 18px; }
             .dsh-git-instance-heading, .dsh-git-instance > .dsh-git-field:nth-child(2), .dsh-git-check { grid-column: 1 / -1; }
             .dsh-git-instance-heading .dsh-git-card-title { font-size: 13px; }
-            .dsh-git-secondary, .dsh-git-remove, .dsh-git-save { cursor: pointer; font: inherit; font-size: 13px; line-height: 20px; border-radius: 7px; padding: 8px 14px; }
-            .dsh-git-secondary { align-self: flex-start; border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
-            .dsh-git-remove { border: 0; background: transparent; color: var(--dsw-alias-state-error-primary); padding: 4px 0 4px 8px; }
+            .dsh-git-add, .dsh-git-secondary, .dsh-git-remove, .dsh-git-save { cursor: pointer; font: inherit; font-size: 13px; line-height: 20px; border-radius: 7px; padding: 8px 14px; }
+            .dsh-git-secondary { align-self: flex-start; border: 1px solid var(--dsw-alias-border-l2, #8590a5); background: var(--dsw-alias-bg-base, transparent); color: var(--dsw-alias-label-primary, inherit); font-weight: 600; }
+            .dsh-git-remove { border: 1px solid currentColor; background: transparent; color: var(--dsw-alias-state-error-primary, #d34242); }
             .dsh-git-field { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
             .dsh-git-field-label { font-size: 13px; color: var(--dsw-alias-label-primary); }
             .dsh-git-input { box-sizing: border-box; width: 100%; height: 40px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; padding: 0 12px; }
             .dsh-git-input:focus-visible, .dsh-git-settings button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 3px; }
-            .dsh-git-check { display: flex; flex-direction: column; gap: 8px; }
+            .dsh-git-check { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l1, #8590a566); padding-top: 16px; }
+            .dsh-git-settings button:not(:disabled):hover { filter: brightness(.92); }
+            .dsh-git-settings button { min-height: 38px; flex-shrink: 0; }
             .dsh-git-check-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
             .dsh-git-general { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
             .dsh-git-general > h2 { grid-column: 1 / -1; }
@@ -483,7 +490,7 @@ const copy = {
           name: 'plugins.bundle.config',
           key: 'dsh-git-connect',
           locale: NS,
-        }, makePage(t, form, ctx.connection)));
+        }, makePage(t, form)));
       },
     };
   },

@@ -145,12 +145,13 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
 export type Config = ReturnType<typeof Config>;
 interface ConnectionContext {
     connection: {
-        rpc: {
-            handle(channel: string, handler: (endpoint: string, payload: unknown, signal: AbortSignal, peer: {
-                principal: {
-                    kind: string;
-                };
-            }) => Promise<ConnectionTestResult>): unknown;
+        fetch: {
+            register(route: {
+                path: string;
+                methods: readonly ['POST'];
+                requestBody: 'buffered';
+                fetch(request: Request): Promise<Response>;
+            }): unknown;
         };
     };
 }
