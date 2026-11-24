@@ -16,7 +16,7 @@ Supported operations:
 - `pull_request_list`, `pull_request_get`, `pull_request_files`, `pull_request_diff`
 - `pull_request_create`, `pull_request_update`, `pull_request_close`, `pull_request_reopen`
 - `pull_request_comment_list`, `pull_request_comment`, `pull_request_merge`
-- `workflow_run_list`, `workflow_run_get`, and `workflow_job_list`: Gitea Actions execution status (read-only)
+- `workflow_run_list`, `workflow_run_get`, and `workflow_job_list`: GitHub and Gitea Actions execution status (read-only)
 
 ## Installation
 
@@ -127,29 +127,31 @@ The tool does not call branch deletion APIs. Gitea merges explicitly request ret
 
 The Gitea contract targets [1.25](https://github.com/go-gitea/gitea/blob/release/v1.25/routers/api/v1/repo/pull.go); GitHub uses the [PR REST API](https://docs.github.com/en/rest/pulls/pulls). Tokens must have access to the repository and permission for the requested operation. GitHub fine-grained tokens need Pull requests read/write as appropriate; Gitea scoped tokens need repository and issue access appropriate to PRs and comments. HTTP errors remain visible; check repository access, branch protections and instance API support when an operation fails.
 
-## Gitea workflow execution status
+## Workflow execution status
 
-Use `git_host` with `provider: "gitea"`, `owner`, and `repo`:
+Use `git_host` with `provider: "github"` or `provider: "gitea"`, `owner`, and `repo`:
 
 | Action | Purpose | Additional arguments |
 | --- | --- | --- |
 | `workflow_run_list` | List runs, including status and conclusion | Optional `branch`, `event`, `status`, `actor`, `head_sha`, `page`, `per_page` |
 | `workflow_run_get` | Inspect a specific run | Required `run_id` |
-| `workflow_job_list` | Inspect jobs and steps in a run | Required `run_id`; optional `status`, `page`, `per_page` |
+| `workflow_job_list` | Inspect jobs and steps in a run | Required `run_id`; optional `page`, `per_page`; `status` supported by Gitea only |
 
 For example, list failed runs on the main branch:
 
 ```json
-{"provider":"gitea","action":"workflow_run_list","owner":"my-org","repo":"my-repo","branch":"main","status":"failure","per_page":10}
+{"provider":"github","action":"workflow_run_list","owner":"my-org","repo":"my-repo","branch":"main","status":"failure","per_page":10}
 ```
 
-Then inspect the jobs using the returned run's **`id`**, not its `run_number` or the number in a web URL:
+Then inspect the jobs using the returned run's **`id`**, not its `run_number` (the display sequence number):
 
 ```json
-{"provider":"gitea","action":"workflow_job_list","owner":"my-org","repo":"my-repo","run_id":801}
+{"provider":"github","action":"workflow_job_list","owner":"my-org","repo":"my-repo","run_id":801}
 ```
 
-Responses preserve the provider JSON in `data`, including `total_count`, `workflow_runs` or `jobs`, statuses, conclusions, timestamps, steps, and runner information when returned by Gitea. The tool maps `per_page` to Gitea's `limit`; request subsequent pages explicitly. These actions do not fetch logs, list available runners, trigger workflows, cancel runs, or rerun jobs. GitHub workflow queries are not implemented.
+Responses preserve the provider JSON in `data`, including `total_count`, `workflow_runs` or `jobs`, statuses, conclusions, timestamps, steps, and runner information when returned by the provider. GitHub uses `per_page`; Gitea maps it to `limit`. Request subsequent pages explicitly. These actions do not fetch logs, list available runners, trigger workflows, cancel runs, or rerun jobs.
+
+GitHub queries use the [workflow runs](https://docs.github.com/en/rest/actions/workflow-runs) and [workflow jobs](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run) REST APIs. Run lists support filtering by status or conclusion (for example, `in_progress` or `failure`); filtered searches return at most 1,000 results. Jobs queries return the latest execution of a run, including after a rerun. GitHub does not support a jobs `status` filter, so the tool rejects that argument; inspect the returned jobs' `status` and `conclusion` instead. Fine-grained tokens need repository **Actions: read** permission; classic tokens need `repo` scope for private repositories.
 
 Gitea 1.25 derives step status/conclusion from the job status in its API converter, so step entries alone cannot reliably identify the failing step; inspect the linked web run for that diagnosis. A jobs query for an unknown positive run ID can return an empty list; use `workflow_run_get` to check that the run exists.
 

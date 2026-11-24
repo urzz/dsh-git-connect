@@ -108,10 +108,10 @@ const parameters = {
   owner: { type: 'string', description: 'Repository owner or organization. Required except for repository_list.' },
   repo: { type: 'string', description: 'Repository name. Required except for repository_list.' },
   organization: { type: 'string', description: 'Organization to list repositories from; omit to list repositories visible to the authenticated user.' },
-  run_id: { type: 'integer', description: 'Required for workflow_run_get and workflow_job_list. Use the id returned by workflow_run_list, not the run_number shown in the web UI. Workflow actions currently support Gitea only.' },
+  run_id: { type: 'integer', description: 'Required for workflow_run_get and workflow_job_list. Use the id returned by workflow_run_list, not the run_number shown in the web UI.' },
   branch: { type: 'string', description: 'Branch filter for workflow_run_list.' },
   event: { type: 'string', description: 'Trigger event filter for workflow_run_list, e.g. push or pull_request.' },
-  status: { type: 'string', description: 'Gitea status filter for workflow_run_list and workflow_job_list, e.g. queued, in_progress, success, failure, cancelled, skipped, or waiting. Omit for all statuses.' },
+  status: { type: 'string', description: 'Status or conclusion filter for workflow_run_list (both providers) and workflow_job_list (Gitea only), e.g. queued, in_progress, success, or failure. Omit for all statuses.' },
   actor: { type: 'string', description: 'Triggering user login filter for workflow_run_list.' },
   head_sha: { type: 'string', description: 'Commit SHA filter for workflow_run_list; expected head SHA for pull_request_merge. Omit to merge the current head without a SHA guard.' },
   head: { type: 'string', description: 'Source branch for pull_request_create; supports username:branch for forks.' },
@@ -289,8 +289,8 @@ async function request(
 function validateArgs(args: GitToolArgs, config: ResolvedConfig): { page: number; perPage: number } {
   if (!PROVIDERS.includes(args.provider)) throw new Error(`provider must be one of: ${PROVIDERS.join(', ')}`);
   if (!ACTIONS.includes(args.action)) throw new Error(`action must be one of: ${ACTIONS.join(', ')}`);
-  if (args.action.startsWith('workflow_') && args.provider !== 'gitea') {
-    throw new Error('Workflow actions currently support Gitea only');
+  if (args.action === 'workflow_job_list' && args.provider === 'github' && args.status !== undefined) {
+    throw new Error('GitHub workflow_job_list does not support status filtering; omit status and inspect returned jobs');
   }
   if (args.action === 'workflow_run_get' || args.action === 'workflow_job_list') {
     positiveInteger(args.run_id, 'run_id');
@@ -417,17 +417,17 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
   const repo = args.repo === undefined ? undefined : `/repos/${pathPart(args.owner, 'owner')}/${pathPart(args.repo, 'repo')}`;
   const pagination = { page: args.page, per_page: args.per_page };
   const pr = `${repo}/pulls/${args.number}`;
-  const prPagination = args.provider === 'gitea' ? { page: args.page, limit: args.per_page } : pagination;
+  const providerPagination = args.provider === 'gitea' ? { page: args.page, limit: args.per_page } : pagination;
   switch (args.action) {
     case 'pull_request_list':
       return { method: 'GET', url: queryUrl(base, `${repo}/pulls`, {
-        ...prPagination, state: args.state,
+        ...providerPagination, state: args.state,
         ...(args.provider === 'gitea' ? { base_branch: args.base } : { base: args.base }),
       }) };
     case 'pull_request_get':
       return { method: 'GET', url: `${base}${pr}` };
     case 'pull_request_files':
-      return { method: 'GET', url: queryUrl(base, `${pr}/files`, prPagination) };
+      return { method: 'GET', url: queryUrl(base, `${pr}/files`, providerPagination) };
     case 'pull_request_diff':
       return { method: 'GET', url: `${base}${pr}${args.provider === 'gitea' ? '.diff' : ''}` };
     case 'pull_request_create':
@@ -438,7 +438,7 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
     case 'pull_request_reopen':
       return { method: 'PATCH', url: `${base}${pr}`, body: { state: args.action === 'pull_request_close' ? 'closed' : 'open' } };
     case 'pull_request_comment_list':
-      return { method: 'GET', url: queryUrl(base, `${repo}/issues/${args.number}/comments`, prPagination) };
+      return { method: 'GET', url: queryUrl(base, `${repo}/issues/${args.number}/comments`, providerPagination) };
     case 'pull_request_comment':
       return { method: 'POST', url: `${base}${repo}/issues/${args.number}/comments`, body: { body: args.body } };
     case 'pull_request_merge':
@@ -448,14 +448,14 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
 
     case 'workflow_run_list':
       return { method: 'GET', url: queryUrl(base, `${repo}/actions/runs`, {
-        page: args.page, limit: args.per_page, branch: args.branch,
+        ...providerPagination, branch: args.branch,
         event: args.event, status: args.status, actor: args.actor, head_sha: args.head_sha,
       }) };
     case 'workflow_run_get':
       return { method: 'GET', url: `${base}${repo}/actions/runs/${args.run_id}` };
     case 'workflow_job_list':
       return { method: 'GET', url: queryUrl(base, `${repo}/actions/runs/${args.run_id}/jobs`, {
-        page: args.page, limit: args.per_page, status: args.status,
+        ...providerPagination, ...(args.provider === 'gitea' ? { status: args.status } : {}),
       }) };
     case 'repository_get':
       return { method: 'GET', url: `${base}${repo}` };
@@ -489,7 +489,7 @@ function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig 
 export function apply(ctx: PluginContext, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'git_host',
-    description: 'Read and manage repositories, Issues and Pull Requests through GitHub or Gitea. Supports repository metadata/listing and Issue management. Both providers support pull_request_list/get/files/diff/create/update/close/reopen/comment_list/comment/merge. PR comments are ordinary conversation comments, not reviews. Merge requires explicit merge_method; optional head_sha guards against changed commits. GitHub supports merge/rebase/squash; Gitea also supports rebase-merge/fast-forward-only. GitHub source branch deletion follows repository settings. For Gitea, also supports workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Gitea instances are selected automatically from the current working directory repository origin when an instance list is configured; unmatched or ambiguous origins fail. Authentication uses the selected instance token configured in the plugin; never include tokens in tool arguments.',
+    description: 'Read and manage repositories, Issues and Pull Requests through GitHub or Gitea. Supports repository metadata/listing and Issue management. Both providers support pull_request_list/get/files/diff/create/update/close/reopen/comment_list/comment/merge. PR comments are ordinary conversation comments, not reviews. Merge requires explicit merge_method; optional head_sha guards against changed commits. GitHub supports merge/rebase/squash; Gitea also supports rebase-merge/fast-forward-only. GitHub source branch deletion follows repository settings. Both providers also support workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run; GitHub returns the latest execution). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Gitea instances are selected automatically from the current working directory repository origin when an instance list is configured; unmatched or ambiguous origins fail. Authentication uses the selected instance token configured in the plugin; never include tokens in tool arguments.',
     parameters,
     output: {
       schema: outputSchema,
