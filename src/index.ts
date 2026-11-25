@@ -104,7 +104,7 @@ const outputSchema = {
 
 const parameters = {
   action: { type: 'string', required: true, enum: ACTIONS, description: 'Operation to perform.' },
-  provider: { type: 'string', required: true, enum: PROVIDERS, description: 'Git hosting provider.' },
+  provider: { type: 'string', enum: PROVIDERS, description: 'Target platform override. Omit to detect from the current repository origin: github.com selects GitHub; a configured Gitea origin prefix selects Gitea. Specify github or gitea for cross-platform operations or when detection is unavailable. Explicit github calls do not read the workspace origin.' },
   owner: { type: 'string', description: 'Repository owner or organization. Required except for repository_list.' },
   repo: { type: 'string', description: 'Repository name. Required except for repository_list.' },
   organization: { type: 'string', description: 'Organization to list repositories from; omit to list repositories visible to the authenticated user.' },
@@ -129,7 +129,8 @@ const parameters = {
   per_page: { type: 'integer', description: 'Items per page, capped by plugin configuration.' },
 } as const;
 
-type GitToolArgs = InferArgs<typeof parameters>;
+type GitToolInput = InferArgs<typeof parameters>;
+type GitToolArgs = GitToolInput & { provider: Provider };
 
 function text(value: unknown, name: string): string {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} must be a non-empty string`);
@@ -384,24 +385,22 @@ interface PluginContext {
 
 // Normalize clone URL forms without equating different hosts, ports or path prefixes.
 function originKey(value: string): string {
-  const input = text(value, 'Gitea origin');
+  const input = text(value, 'Repository origin');
   const scp = !input.includes('://') && input.match(/^(?:[^@/:]+@)?([^/:]+):(.*)$/);
   const url = new URL(scp ? `ssh://${scp[1]}/${scp[2]}` : input);
   if (!['http:', 'https:', 'ssh:', 'git:'].includes(url.protocol)) {
-    throw new Error('Gitea origin must be an HTTP(S), SSH or git clone URL');
+    throw new Error('Repository origin must be an HTTP(S), SSH or git clone URL');
   }
   const port = url.protocol === 'ssh:' && url.port === '22' ? '' : url.port;
   const path = url.pathname.replace(/\/+$/, '').replace(/\.git$/, '').replace(/\/+$/, '');
   return `${url.hostname.toLowerCase()}${port ? `:${port}` : ''}${path}`;
 }
 
-async function selectGitea(ctx: PluginContext, config: ResolvedConfig, exec: ToolRunContext): Promise<void> {
-  const instances = config.providers.gitea.instances;
-  if (!instances.length) return;
+async function readOrigin(ctx: PluginContext, config: ResolvedConfig, exec: ToolRunContext): Promise<string> {
   const workingDirectory = ctx.get('workingDirectory');
   const subprocess = ctx.get('subprocess');
   if (!exec.agent || !workingDirectory || !subprocess) {
-    throw new Error('Gitea instance selection requires an agent, workingDirectory and subprocess services');
+    throw new Error('Provider/instance detection requires an agent, workingDirectory and subprocess services; specify provider="github" or configure a single Gitea connection to operate without workspace services');
   }
   const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(config.requestTimeoutMs)]);
   const cwd = await workingDirectory.ensure(exec.agent, signal);
@@ -412,18 +411,38 @@ async function selectGitea(ctx: PluginContext, config: ResolvedConfig, exec: Too
   });
   const outcome = await proc.done;
   signal.throwIfAborted();
-  if (outcome.exitCode !== 0) throw new Error('Cannot read repository origin for Gitea instance selection');
+  if (outcome.exitCode !== 0) throw new Error('Cannot read repository origin for provider/instance detection; specify provider explicitly when automatic detection is unavailable');
   const output = proc.collected.stdout!.readFrom(0);
-  if (output.lossy) throw new Error('Repository origin exceeds the Gitea selection size limit');
-  const origin = originKey(output.text.trim());
-  const matches = instances.map(instance => ({ instance, key: originKey(instance.origin) }))
+  if (output.lossy) throw new Error('Repository origin exceeds the provider/instance detection size limit');
+  return originKey(output.text.trim());
+}
+
+function selectGitea(config: ResolvedConfig, origin: string, provider: GitToolInput['provider']): void {
+  const matches = config.providers.gitea.instances.map(instance => ({ instance, key: originKey(instance.origin) }))
     .filter(({ key }) => origin === key || origin.startsWith(`${key}/`))
     .sort((a, b) => b.key.length - a.key.length);
-  if (!matches.length) throw new Error('No configured Gitea instance matches repository origin');
+  if (!matches.length) {
+    throw new Error(`${provider === undefined ? 'Automatic provider detection' : 'provider=gitea'}: No configured Gitea instance matches repository origin "${origin}". Specify provider="github" for a GitHub target, or configure a matching Gitea origin prefix.`);
+  }
   if (matches[1]?.key.length === matches[0].key.length) {
     throw new Error('Multiple Gitea instances match repository origin equally; use unique origin prefixes');
   }
   Object.assign(config.providers.gitea, matches[0].instance);
+}
+
+async function resolveProvider(ctx: PluginContext, config: ResolvedConfig, input: GitToolInput, exec: ToolRunContext): Promise<Provider> {
+  if (input.provider !== undefined && !PROVIDERS.includes(input.provider)) {
+    throw new Error(`provider must be one of: ${PROVIDERS.join(', ')}`);
+  }
+  if (input.provider === 'github') return 'github';
+  if (input.provider === 'gitea' && !config.providers.gitea.instances.length) return 'gitea';
+  const origin = await readOrigin(ctx, config, exec);
+  if (input.provider === undefined && origin.split('/')[0].split(':')[0] === 'github.com') return 'github';
+  if (input.provider === undefined && !config.providers.gitea.instances.length) {
+    throw new Error(`Cannot detect provider from repository origin "${origin}"; specify provider explicitly or configure Gitea origin prefixes`);
+  }
+  selectGitea(config, origin, input.provider);
+  return 'gitea';
 }
 
 function buildRequest(args: GitToolArgs, config: ResolvedConfig): RequestConfig {
@@ -589,17 +608,18 @@ export function apply(ctx: PluginContext, config: Config): void {
   });
   ctx.tools.register(defineTool({
     name: 'git_host',
-    description: 'Read and manage repositories, Issues and Pull Requests through GitHub or Gitea. Supports repository metadata/listing and Issue management. Both providers support pull_request_list/get/files/diff/create/update/close/reopen/comment_list/comment/merge. PR comments are ordinary conversation comments, not reviews. Merge requires explicit merge_method; optional head_sha guards against changed commits. GitHub supports merge/rebase/squash; Gitea also supports rebase-merge/fast-forward-only. GitHub source branch deletion follows repository settings. Both providers also support workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run; GitHub returns the latest execution). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Gitea instances are selected automatically from the current working directory repository origin when an instance list is configured; unmatched or ambiguous origins fail. Authentication uses the selected instance token configured in the plugin; never include tokens in tool arguments.',
+    description: 'Read and manage repositories, Issues and Pull Requests through GitHub or Gitea. Supports repository metadata/listing and Issue management. Both providers support pull_request_list/get/files/diff/create/update/close/reopen/comment_list/comment/merge. PR comments are ordinary conversation comments, not reviews. Merge requires explicit merge_method; optional head_sha guards against changed commits. GitHub supports merge/rebase/squash; Gitea also supports rebase-merge/fast-forward-only. GitHub source branch deletion follows repository settings. Both providers also support workflow_run_list (runs with branch/status/event/actor/SHA filters), workflow_run_get (run details), and workflow_job_list (jobs and steps for a run; GitHub returns the latest execution). Use returned run id, not run_number. Gitea may require repository owner permissions to list runs. Omit provider to detect the platform from the current repository origin. Gitea connections are selected by configured origin prefixes; unmatched or ambiguous origins fail. Authentication uses the chosen provider connection token configured in the plugin; never include tokens in tool arguments.',
     parameters,
     output: {
       schema: outputSchema,
       render: (_args, value) => [{ type: 'text', text: String(JSON.stringify(value, null, 2)) }],
     },
-    async execute(args, exec) {
+    async execute(input, exec) {
       // Volatile fields stay live between calls; each request uses one coherent snapshot.
       const resolvedConfig = snapshotConfig(config);
+      const provider = await resolveProvider(ctx, resolvedConfig, input, exec);
+      const args: GitToolArgs = { ...input, provider };
       const { page, perPage } = validateArgs(args, resolvedConfig);
-      if (args.provider === 'gitea') await selectGitea(ctx, resolvedConfig, exec);
       const requestConfig = buildRequest({ ...args, page, per_page: perPage }, resolvedConfig);
       if (requestConfig.body) {
         for (const key of Object.keys(requestConfig.body)) {
@@ -623,7 +643,7 @@ export function apply(ctx: PluginContext, config: Config): void {
     },
     presentCall: args => ({
       card: 'generic',
-      title: `${args.provider} ${args.action}`,
+      title: `${args.provider ?? 'auto'} ${args.action}`,
       kind: args.action.startsWith('pull_request_')
         ? (['pull_request_create', 'pull_request_update', 'pull_request_close', 'pull_request_reopen', 'pull_request_comment', 'pull_request_merge'].includes(args.action) ? 'other' : 'read')
         : (args.action.includes('create') || args.action.includes('update') || args.action.includes('comment') || args.action.includes('close') ? 'other' : 'read'),

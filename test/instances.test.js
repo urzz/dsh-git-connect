@@ -151,6 +151,110 @@ test('Cordis activates with only tools and resolves workspace services when need
   assert.equal(String(fetchMock.mock.calls[1].arguments[0]), 'https://api.one.example/api/v1/repos/owner/repo');
 });
 
+test('GitHub calls ignore configured Gitea instances and need no workspace services', async t => {
+  const cfg = config();
+  cfg.providers.github.tokenRef = { get: () => 'github-token' };
+  let tool;
+  apply({
+    tools: { register(value) { tool = value; } },
+    get() { throw new Error('GitHub must not look up workspace services'); },
+  }, cfg);
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    requests.push([String(url), init.headers.get('Authorization')]);
+    return Response.json({});
+  });
+  for (const action of ['repository_get', 'repository_list', 'workflow_run_list']) {
+    const result = await tool.execute({ ...args, provider: 'github', action }, { signal: new AbortController().signal });
+    assert.equal(result.provider, 'github');
+  }
+  assert.deepEqual(requests, [
+    ['https://api.github.com/repos/owner/repo', 'Bearer github-token'],
+    ['https://api.github.com/user/repos?page=1&per_page=50', 'Bearer github-token'],
+    ['https://api.github.com/repos/owner/repo/actions/runs?page=1&per_page=50', 'Bearer github-token'],
+  ]);
+});
+
+test('Gitea mismatch on a GitHub origin identifies the selected provider without blocking GitHub', async t => {
+  const cfg = config();
+  cfg.providers.github.tokenRef = { get: () => 'github-token' };
+  // The diagnostic should use the normalized origin without URL credentials.
+  const { tool, calls } = setup(cfg, () => 'https://user:secret@github.com/owner/repo.git');
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(String(url), 'https://api.github.com/repos/owner/repo');
+    assert.equal(init.headers.get('Authorization'), 'Bearer github-token');
+    return Response.json({ name: 'repo' });
+  });
+  await assert.rejects(tool.execute(args, exec()), error => {
+    assert.match(error.message, /provider=gitea: No configured Gitea instance/);
+    assert.match(error.message, /"github.com\/owner\/repo"/);
+    assert.match(error.message, /provider="github"/);
+    assert.ok(!error.message.includes('secret'));
+    return true;
+  });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  await tool.execute({ ...args, provider: 'github' }, exec());
+  assert.equal(fetchMock.mock.callCount(), 1);
+  assert.equal(calls.length, 1, 'only the Gitea call reads origin');
+});
+
+for (const origin of ['https://github.com/owner/repo.git', 'git@github.com:owner/repo.git', 'ssh://git@github.com/owner/repo.git', 'git://github.com/owner/repo.git']) {
+  test(`automatically detects GitHub without matching Gitea instances: ${origin}`, async t => {
+    const cfg = config();
+    cfg.providers.github.tokenRef = { get: () => 'github-token' };
+    const { tool, calls } = setup(cfg, () => origin);
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      assert.equal(String(url), 'https://api.github.com/repos/owner/repo');
+      assert.equal(init.headers.get('Authorization'), 'Bearer github-token');
+      return Response.json({});
+    });
+    assert.equal((await tool.execute({ action: args.action, owner: args.owner, repo: args.repo }, exec())).provider, 'github');
+    assert.equal(calls.length, 1);
+  });
+}
+
+test('automatic detection selects Gitea credentials and rereads origin on the next call', async t => {
+  const cfg = config();
+  cfg.providers.github.tokenRef = { get: () => 'github-token' };
+  let origin = 'git@git.two.example:forge/owner/repo.git';
+  const { tool, calls } = setup(cfg, () => origin);
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    requests.push([String(url), init.headers.get('Authorization')]);
+    return Response.json([]);
+  });
+  const input = { action: 'repository_list' };
+  assert.equal((await tool.execute(input, exec())).provider, 'gitea');
+  origin = 'https://github.com/owner/repo.git';
+  assert.equal((await tool.execute(input, exec())).provider, 'github');
+  assert.deepEqual(requests, [
+    ['https://git.two.example/forge/api/v1/user/repos?page=1&per_page=50', 'token two'],
+    ['https://api.github.com/user/repos?page=1&per_page=50', 'Bearer github-token'],
+  ]);
+  assert.equal(calls.length, 2);
+});
+
+test('automatic detection fails closed for unknown, ambiguous and unavailable origins', async t => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', () => { throw new Error('unexpected HTTP'); });
+  const input = { action: args.action, owner: args.owner, repo: args.repo };
+  for (const origin of ['https://github.com.evil/owner/repo', 'https://unknown.example/owner/repo']) {
+    await assert.rejects(setup(config(), () => origin).tool.execute(input, exec()), /Automatic provider detection: No configured/);
+    await assert.rejects(setup(config([]), () => origin).tool.execute(input, exec()), /Cannot detect provider/);
+  }
+  await assert.rejects(setup(config([instances[0], instances[0]]), () => 'git@git.one.example:owner/repo').tool.execute(input, exec()), /Multiple Gitea/);
+  await assert.rejects(setup(config(), () => '', { exitCode: 2 }).tool.execute(input, exec()), /Cannot read repository origin/);
+  await assert.rejects(setup(config(), () => '').tool.execute(input, { signal: new AbortController().signal }), /requires an agent/);
+  await assert.rejects(setup(config(), () => '').tool.execute({ ...input, provider: 'other' }, exec()), /provider/);
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test('automatically detected provider applies platform-specific validation before HTTP', async t => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', () => { throw new Error('unexpected HTTP'); });
+  const { tool } = setup(config(), () => 'git@github.com:owner/repo.git');
+  await assert.rejects(tool.execute({ owner: args.owner, repo: args.repo, action: 'workflow_job_list', run_id: 1, status: 'queued' }, exec()), /GitHub workflow_job_list does not support status/);
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
 test('empty instance list retains single-instance mode without workspace services', async t => {
   let tool;
   apply({ tools: { register(value) { tool = value; } } }, config([]));

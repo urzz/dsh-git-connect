@@ -64,6 +64,12 @@ A profile patch can override endpoints or tokens:
 
 For a single self-hosted Gitea, set `providers.gitea.baseUrl` to the complete REST API root, such as `https://git.example.com/api/v1`. This supports installations behind a reverse proxy or at a custom API path as well.
 
+### Provider detection
+
+`git_host` accepts an optional `provider` (`github` or `gitea`). When omitted, it reads the current working directory's repository `origin`: a `github.com` host selects GitHub, while a configured Gitea origin prefix selects Gitea and its connection. HTTPS, SSH, git and scp-style clone URLs are supported. Detection does not infer `owner` or `repo`; supply these as required by the action.
+
+Unknown hosts, ambiguous Gitea prefixes, missing origins, and unavailable workspace services fail before any API request. Configure Gitea origin prefixes for automatic detection, even for a single instance. To operate on another platform, GitHub Enterprise, or outside a repository, specify `provider` explicitly. Explicit `github` uses the configured GitHub API root and token without reading origin. Explicit `gitea` retains single-connection mode when no instance list is configured; with instances, origin matching still selects the Gitea connection.
+
 ### Multiple Gitea instances
 
 Add instances in the plugin settings, or configure `providers.gitea.instances`:
@@ -80,7 +86,7 @@ providers:
         tokenRef: '<personal-token>'
 ```
 
-Each Gitea call reads `git remote get-url origin` in the current session working directory and selects the matching instance's API root and token. This also applies to `repository_list`. No instance or credential arguments are needed in tool calls. The working directory must be inside a Git repository with an `origin` remote, and DSH must provide the workingDirectory and subprocess services.
+When an instance list is configured, each Gitea call reads `git remote get-url origin` in the current session working directory and selects the matching instance's API root and token. This also applies to `repository_list`. No instance or credential arguments are needed in tool calls. The working directory must be inside a Git repository with an `origin` remote, and DSH must provide the workingDirectory and subprocess services.
 
 `origin` is a clone URL prefix: HTTP(S), `ssh://`, `git://`, and scp-style URLs such as `git@git.example.com:team` are supported. Matching ignores the username, scheme, trailing slash and `.git` suffix; HTTP(S) default ports and SSH port 22 are normalized. Nondefault ports must match explicitly. Hosts must match exactly, paths match at directory boundaries, and the longest matching path prefix wins. For example, `https://git.example.com/forge` matches `git@git.example.com:forge/team/repo.git`. Configure a separate prefix for an SSH host alias or a different SSH port.
 
